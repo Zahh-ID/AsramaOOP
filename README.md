@@ -181,6 +181,13 @@ Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server databa
         SELECT p_status_code, p_status_message;
     END$$
 
+    DELIMITER ;
+    ```
+    * **Penggunaan di Python (`DatabaseService.add_penghuni`)**: Memanggil prosedur ini menggunakan `self.cursor.callproc()`. Hasil parameter `OUT` diambil dari `self.cursor.stored_results()` dan digunakan untuk memberikan feedback ke pengguna.
+
+* **`sp_PindahKamarPenghuni`**:
+    * **Definisi SQL**: Menerima parameter IN (nim, nomor kamar baru, id asrama baru) dan parameter OUT (status_code, status_message). Melakukan validasi (penghuni ada, kamar tujuan ada, kapasitas kamar tujuan) sebelum melakukan `UPDATE` pada `kamar_id_internal` di tabel `Penghuni`. Diakhiri dengan `SELECT p_status_code, p_status_message;`.
+    ```sql
     $$
     CREATE PROCEDURE sp_PindahKamarPenghuni (
         IN p_nim VARCHAR(50),
@@ -239,10 +246,6 @@ Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server databa
 
     DELIMITER ;
     ```
-    * **Penggunaan di Python (`DatabaseService.add_penghuni`)**: Memanggil prosedur ini menggunakan `self.cursor.callproc()`. Hasil parameter `OUT` diambil dari `self.cursor.stored_results()` dan digunakan untuk memberikan feedback ke pengguna.
-
-* **`sp_PindahKamarPenghuni`**:
-    * **Definisi SQL**: Menerima parameter IN (nim, nomor kamar baru, id asrama baru) dan parameter OUT (status_code, status_message). Melakukan validasi (penghuni ada, kamar tujuan ada, kapasitas kamar tujuan) sebelum melakukan `UPDATE` pada `kamar_id_internal` di tabel `Penghuni`. Diakhiri dengan `SELECT p_status_code, p_status_message;`.
     * **Penggunaan di Python (`DatabaseService.pindah_kamar_penghuni`)**: Mirip dengan `add_penghuni`, memanggil prosedur dan mengambil status operasinya.
 
 ### 3. Trigger
