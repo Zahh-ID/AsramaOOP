@@ -296,7 +296,8 @@ CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
             NEW.nim, NEW.nama_penghuni, NEW.fakultas,
             NEW.kamar_id_internal, v_nomor_kamar, v_nama_asrama,
             'INSERT', CONCAT('Penghuni baru ditambahkan ke kamar ', v_nomor_kamar, ' Asrama ', v_nama_asrama)
-        )$$
+        );
+    END$$
     ```
     * **Event**: `AFTER INSERT ON Penghuni`
     * **Aksi**: Mencatat data penghuni yang baru ditambahkan (NIM, nama, fakultas, detail kamar baru) ke dalam tabel `AuditLogAktivitasPenghuni` dengan aksi 'INSERT'.
