@@ -188,7 +188,7 @@ Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server databa
 * **`sp_PindahKamarPenghuni`**:
     * **Definisi SQL**: Menerima parameter IN (nim, nomor kamar baru, id asrama baru) dan parameter OUT (status_code, status_message). Melakukan validasi (penghuni ada, kamar tujuan ada, kapasitas kamar tujuan) sebelum melakukan `UPDATE` pada `kamar_id_internal` di tabel `Penghuni`. Diakhiri dengan `SELECT p_status_code, p_status_message;`.
     ```sql
-    $$
+    DELIMITER $$
     CREATE PROCEDURE sp_PindahKamarPenghuni (
         IN p_nim VARCHAR(50),
         IN p_nomor_kamar_baru INT,
@@ -251,13 +251,139 @@ Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server databa
 ### 3. Trigger
 Trigger adalah blok kode SQL yang secara otomatis dieksekusi sebagai respons terhadap event tertentu (INSERT, UPDATE, DELETE) pada tabel.
 * **Tabel `AuditLogAktivitasPenghuni`**: Dibuat untuk menyimpan log semua perubahan data penghuni.
+```sql
+CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
+    log_id INT AUTO_INCREMENT PRIMARY KEY,
+    nim VARCHAR(50),
+    nama_penghuni_lama VARCHAR(255) DEFAULT NULL,
+    nama_penghuni_baru VARCHAR(255) DEFAULT NULL,
+    fakultas_lama VARCHAR(255) DEFAULT NULL,
+    fakultas_baru VARCHAR(255) DEFAULT NULL,
+    kamar_id_internal_lama INT DEFAULT NULL,
+    kamar_id_internal_baru INT DEFAULT NULL,
+    nomor_kamar_lama INT DEFAULT NULL,
+    nama_asrama_lama VARCHAR(255) DEFAULT NULL,
+    nomor_kamar_baru INT DEFAULT NULL,
+    nama_asrama_baru VARCHAR(255) DEFAULT NULL,
+    aksi VARCHAR(10) NOT NULL COMMENT 'INSERT, UPDATE, DELETE',
+    waktu_aksi TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_aksi VARCHAR(100) DEFAULT NULL COMMENT 'Jika ada mekanisme user login di aplikasi',
+    keterangan_tambahan TEXT DEFAULT NULL
+) ENGINE=InnoDB;
+```
 * **`trg_LogInsertPenghuni`**:
+    ```sql
+    DELIMITER $$
+
+    CREATE TRIGGER trg_LogInsertPenghuni
+    AFTER INSERT ON Penghuni
+    FOR EACH ROW
+    BEGIN
+        DECLARE v_nomor_kamar INT;
+        DECLARE v_nama_asrama VARCHAR(255);
+
+        SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar, v_nama_asrama
+        FROM Kamar K
+        JOIN Asrama A ON K.asrama_id = A.asrama_id
+        WHERE K.kamar_id_internal = NEW.kamar_id_internal;
+
+        INSERT INTO AuditLogAktivitasPenghuni (
+            nim, nama_penghuni_baru, fakultas_baru,
+            kamar_id_internal_baru, nomor_kamar_baru, nama_asrama_baru,
+            aksi, keterangan_tambahan
+        )
+        VALUES (
+            NEW.nim, NEW.nama_penghuni, NEW.fakultas,
+            NEW.kamar_id_internal, v_nomor_kamar, v_nama_asrama,
+            'INSERT', CONCAT('Penghuni baru ditambahkan ke kamar ', v_nomor_kamar, ' Asrama ', v_nama_asrama)
+        );
+    ```
     * **Event**: `AFTER INSERT ON Penghuni`
     * **Aksi**: Mencatat data penghuni yang baru ditambahkan (NIM, nama, fakultas, detail kamar baru) ke dalam tabel `AuditLogAktivitasPenghuni` dengan aksi 'INSERT'.
 * **`trg_LogUpdatePenghuni`**:
+    ```sql
+        
+    CREATE TRIGGER trg_LogUpdatePenghuni
+    AFTER UPDATE ON Penghuni
+    FOR EACH ROW
+    BEGIN
+        DECLARE v_nomor_kamar_lama INT;
+        DECLARE v_nama_asrama_lama VARCHAR(255);
+        DECLARE v_nomor_kamar_baru INT;
+        DECLARE v_nama_asrama_baru VARCHAR(255);
+        DECLARE v_keterangan TEXT DEFAULT 'Data penghuni diubah.';
+
+        IF OLD.kamar_id_internal IS NOT NULL THEN
+            SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar_lama, v_nama_asrama_lama
+            FROM Kamar K
+            JOIN Asrama A ON K.asrama_id = A.asrama_id
+            WHERE K.kamar_id_internal = OLD.kamar_id_internal;
+        END IF;
+
+        IF NEW.kamar_id_internal IS NOT NULL THEN
+            SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar_baru, v_nama_asrama_baru
+            FROM Kamar K
+            JOIN Asrama A ON K.asrama_id = A.asrama_id
+            WHERE K.kamar_id_internal = NEW.kamar_id_internal;
+        END IF;
+
+        IF OLD.kamar_id_internal != NEW.kamar_id_internal THEN
+            SET v_keterangan = CONCAT('Penghuni pindah dari kamar ', IFNULL(v_nomor_kamar_lama, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama_lama, 'N/A'), ' ke kamar ', IFNULL(v_nomor_kamar_baru, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama_baru, 'N/A'), '.');
+        END IF;
+
+        INSERT INTO AuditLogAktivitasPenghuni (
+            nim,
+            nama_penghuni_lama, nama_penghuni_baru,
+            fakultas_lama, fakultas_baru,
+            kamar_id_internal_lama, kamar_id_internal_baru,
+            nomor_kamar_lama, nama_asrama_lama,
+            nomor_kamar_baru, nama_asrama_baru,
+            aksi, keterangan_tambahan
+        )
+        VALUES (
+            OLD.nim, 
+            OLD.nama_penghuni, NEW.nama_penghuni,
+            OLD.fakultas, NEW.fakultas,
+            OLD.kamar_id_internal, NEW.kamar_id_internal,
+            v_nomor_kamar_lama, v_nama_asrama_lama,
+            v_nomor_kamar_baru, v_nama_asrama_baru,
+            'UPDATE', v_keterangan
+        );
+    END$$
+    ```
     * **Event**: `AFTER UPDATE ON Penghuni`
     * **Aksi**: Mencatat nilai lama dan baru untuk nama, fakultas, dan detail kamar penghuni yang diubah ke dalam `AuditLogAktivitasPenghuni` dengan aksi 'UPDATE'. Juga memberikan keterangan jika terjadi perpindahan kamar.
 * **`trg_LogDeletePenghuni`**:
+    ```sql
+        
+    CREATE TRIGGER trg_LogDeletePenghuni
+    AFTER DELETE ON Penghuni
+    FOR EACH ROW
+    BEGIN
+        DECLARE v_nomor_kamar INT;
+        DECLARE v_nama_asrama VARCHAR(255);
+
+        IF OLD.kamar_id_internal IS NOT NULL THEN
+            SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar, v_nama_asrama
+            FROM Kamar K
+            JOIN Asrama A ON K.asrama_id = A.asrama_id
+            WHERE K.kamar_id_internal = OLD.kamar_id_internal;
+        END IF;
+
+        INSERT INTO AuditLogAktivitasPenghuni (
+            nim, nama_penghuni_lama, fakultas_lama,
+            kamar_id_internal_lama, nomor_kamar_lama, nama_asrama_lama,
+            aksi, keterangan_tambahan
+        )
+        VALUES (
+            OLD.nim, OLD.nama_penghuni, OLD.fakultas,
+            OLD.kamar_id_internal, v_nomor_kamar, v_nama_asrama,
+            'DELETE', CONCAT('Penghuni dihapus dari kamar ', IFNULL(v_nomor_kamar, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama, 'N/A'))
+        );
+    END$$
+
+    DELIMITER ;
+    ```
     * **Event**: `AFTER DELETE ON Penghuni`
     * **Aksi**: Mencatat data penghuni yang dihapus (NIM, nama lama, fakultas lama, detail kamar lama) ke dalam `AuditLogAktivitasPenghuni` dengan aksi 'DELETE'.
 * **Penggunaan di Python**: Trigger bekerja secara otomatis di sisi database. Kode Python hanya perlu melakukan operasi DML (INSERT, UPDATE, DELETE) pada tabel `Penghuni` (baik secara langsung maupun melalui Stored Procedure), dan trigger akan terpanggil untuk mencatat log. Layar `RiwayatAktivitasScreen` kemudian menampilkan data dari tabel `AuditLogAktivitasPenghuni`.
