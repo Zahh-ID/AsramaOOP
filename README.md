@@ -26,20 +26,19 @@ Aplikasi ini adalah sistem manajemen asrama berbasis desktop yang dibangun mengg
 ## Struktur Kode (Kelas Utama)
 
 Aplikasi ini dibangun dengan beberapa kelas utama yang saling berinteraksi:
-dari file [dbService](https://github.com/Zahh-ID/AsramaOOP/blob/main/dbService.py)
-1.  **`DatabaseService`**:
+1.  **`DatabaseService` dari file [dbService](https://github.com/Zahh-ID/AsramaOOP/blob/main/dbService.py)**:
     * Bertanggung jawab untuk semua interaksi dengan database MySQL.
     * Mengenkapsulasi kueri SQL, pemanggilan Stored Procedure, dan koneksi database.
     * Menggunakan View (`vw_DetailKamarPenghuni`, `vw_DaftarPenghuniLengkap`) untuk pengambilan data yang lebih efisien dan terstruktur.
     * Memanggil Stored Procedure (`sp_TambahPenghuni`, `sp_PindahKamarPenghuni`) untuk operasi data yang kompleks.
 
-2.  **`BaseScreen`**:
+2.  **`BaseScreen` dari file [baseScreen](https://github.com/Zahh-ID/AsramaOOP/blob/main/baseScreen.py)**:
     * Kelas dasar abstrak untuk semua layar (screen) dalam aplikasi.
     * Menyediakan fungsionalitas umum seperti pembersihan layar, akses ke `ScreenManager` dan `DatabaseService`.
     * Mendefinisikan metode `setup_ui()` yang harus diimplementasikan oleh setiap layar turunan (polimorfisme).
 
 3.  **Kelas Layar Turunan dari `BaseScreen`**:
-    * **`MainMenuScreen`**: Tampilan menu utama aplikasi.
+    * **`[MainMenuScreen](https://github.com/Zahh-ID/AsramaOOP/blob/main/mainMenuScreen.py)`**: Tampilan menu utama aplikasi.
     * **`AsramaSelectionScreen`**: Layar untuk memilih asrama.
     * **`KamarListScreen`**: Layar untuk menampilkan daftar kamar dalam satu asrama.
     * **`KamarDetailScreen`**: Layar untuk menampilkan detail kamar, termasuk daftar penghuni dalam bentuk tabel, dan tombol-tombol operasi.
