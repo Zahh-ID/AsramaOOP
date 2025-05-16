@@ -95,67 +95,68 @@ Polimorfisme ("banyak bentuk") adalah kemampuan objek dari kelas yang berbeda un
     * Ketika `ScreenManager` memanggil `self.current_screen_instance.setup_ui()`, versi `setup_ui()` yang sesuai dengan tipe objek layar saat itu akan dieksekusi. `ScreenManager` tidak perlu tahu tipe spesifik layar tersebut untuk memanggil metode ini.
 
 ## Detail Penerapan Fitur Database
-```sql
-INSERT INTO Asrama (asrama_id, nama_asrama) VALUES
-(1, 'Aster'),
-(2, 'Soka'),
-(3, 'Tulip'),
-(4, 'Edelweiss'),
-(5, 'Lily'),
-(6, 'Dahlia'),
-(7, 'Melati'),
-(8, 'Anyelir');
+* **Memasukkan data awal asrama dan kamar**
+    ```sql
+    INSERT INTO Asrama (asrama_id, nama_asrama) VALUES
+    (1, 'Aster'),
+    (2, 'Soka'),
+    (3, 'Tulip'),
+    (4, 'Edelweiss'),
+    (5, 'Lily'),
+    (6, 'Dahlia'),
+    (7, 'Melati'),
+    (8, 'Anyelir');
 
--- Kamar untuk Asrama Aster (asrama_id = 1)
-INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES
-(101, 1, 2), (102, 1, 2), (103, 1, 3), 
-(201, 1, 2), (202, 1, 2), (203, 1, 2),
-(301, 1, 2), (302, 1, 2), (303, 1, 2);
+    -- Kamar untuk Asrama Aster (asrama_id = 1)
+    INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES
+    (101, 1, 2), (102, 1, 2), (103, 1, 3), 
+    (201, 1, 2), (202, 1, 2), (203, 1, 2),
+    (301, 1, 2), (302, 1, 2), (303, 1, 2);
 
--- Kamar untuk Asrama Soka (asrama_id = 2)
-INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES
-(101, 2, 2), (102, 2, 2), (103, 2, 2),
-(201, 2, 2), (202, 2, 2), (203, 2, 2),
-(301, 2, 2), (302, 2, 2), (303, 2, 2);
+    -- Kamar untuk Asrama Soka (asrama_id = 2)
+    INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES
+    (101, 2, 2), (102, 2, 2), (103, 2, 2),
+    (201, 2, 2), (202, 2, 2), (203, 2, 2),
+    (301, 2, 2), (302, 2, 2), (303, 2, 2);
 
--- Kamar untuk Asrama Tulip (asrama_id = 3)
-INSERT INTO Kamar (nomor_kamar, asrama_id) VALUES -- Menggunakan kapasitas default (2)
-(101, 3), (102, 3), (103, 3),
-(201, 3), (202, 3), (203, 3),
-(301, 3), (302, 3), (303, 3);
+    -- Kamar untuk Asrama Tulip (asrama_id = 3)
+    INSERT INTO Kamar (nomor_kamar, asrama_id) VALUES -- Menggunakan kapasitas default (2)
+    (101, 3), (102, 3), (103, 3),
+    (201, 3), (202, 3), (203, 3),
+    (301, 3), (302, 3), (303, 3);
 
--- Kamar untuk Asrama Edelweiss (asrama_id = 4)
-INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES
-(101, 4, 2), (102, 4, 2), (103, 4, 2),
-(201, 4, 2), (202, 4, 2), (203, 4, 2),
-(301, 4, 2), (302, 4, 2), (303, 4, 2);
+    -- Kamar untuk Asrama Edelweiss (asrama_id = 4)
+    INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES
+    (101, 4, 2), (102, 4, 2), (103, 4, 2),
+    (201, 4, 2), (202, 4, 2), (203, 4, 2),
+    (301, 4, 2), (302, 4, 2), (303, 4, 2);
 
--- Kamar untuk Asrama Lily (asrama_id = 5)
-INSERT INTO Kamar (nomor_kamar, asrama_id) VALUES 
-(101, 5), (102, 5), (103, 5),
-(201, 5), (202, 5), (203, 5),
-(301, 5), (302, 5), (303, 5);
+    -- Kamar untuk Asrama Lily (asrama_id = 5)
+    INSERT INTO Kamar (nomor_kamar, asrama_id) VALUES 
+    (101, 5), (102, 5), (103, 5),
+    (201, 5), (202, 5), (203, 5),
+    (301, 5), (302, 5), (303, 5);
 
--- Kamar untuk Asrama Dahlia (asrama_id = 6)
-INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES
-(101, 6, 2), (102, 6, 2), (103, 6, 2),
-(201, 6, 2), (202, 6, 2), (203, 6, 2),
-(301, 6, 2), (302, 6, 2), (303, 6, 2);
+    -- Kamar untuk Asrama Dahlia (asrama_id = 6)
+    INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES
+    (101, 6, 2), (102, 6, 2), (103, 6, 2),
+    (201, 6, 2), (202, 6, 2), (203, 6, 2),
+    (301, 6, 2), (302, 6, 2), (303, 6, 2);
 
--- Kamar untuk Asrama Melati (asrama_id = 7)
-INSERT INTO Kamar (nomor_kamar, asrama_id) VALUES 
-(101, 7), (102, 7), (103, 7),
-(201, 7), (202, 7), (203, 7),
-(301, 7), (302, 7), (303, 7);
+    -- Kamar untuk Asrama Melati (asrama_id = 7)
+    INSERT INTO Kamar (nomor_kamar, asrama_id) VALUES 
+    (101, 7), (102, 7), (103, 7),
+    (201, 7), (202, 7), (203, 7),
+    (301, 7), (302, 7), (303, 7);
 
--- Kamar untuk Asrama Anyelir (asrama_id = 8)
-INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES
-(101, 8, 2), (102, 8, 2), (103, 8, 2),
-(201, 8, 2), (202, 8, 2), (203, 8, 2),
-(301, 8, 2), (302, 8, 2), (303, 8, 2);
+    -- Kamar untuk Asrama Anyelir (asrama_id = 8)
+    INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES
+    (101, 8, 2), (102, 8, 2), (103, 8, 2),
+    (201, 8, 2), (202, 8, 2), (203, 8, 2),
+    (301, 8, 2), (302, 8, 2), (303, 8, 2);
 
 
-```
+    ```
 Aplikasi ini memanfaatkan beberapa fitur database MySQL untuk meningkatkan fungsionalitas dan integritas data:
 
 ### 1. View
