@@ -52,7 +52,7 @@ Aplikasi ini dibangun dengan beberapa kelas utama yang saling berinteraksi:
     * Mengelola transisi dan tampilan antar berbagai layar aplikasi.
     * Menyimpan konteks navigasi (seperti asrama yang sedang aktif).
 
-5.  **`AppGui`**:
+5.  **`App`**:
     * Kelas utama aplikasi yang menginisialisasi window Tkinter, canvas utama, `DatabaseService`, dan `ScreenManager`.
     * Bertanggung jawab untuk memuat aset (gambar) dan memulai loop utama Tkinter.
 
@@ -129,6 +129,116 @@ View adalah tabel virtual yang isinya didefinisikan oleh sebuah kueri SQL.
 Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server database dan dapat dipanggil berdasarkan namanya.
 * **`sp_TambahPenghuni`**:
     * **Definisi SQL**: Menerima parameter IN (nim, nama, fakultas, nomor kamar, id asrama) dan parameter OUT (status_code, status_message). Melakukan validasi (kamar ditemukan, kapasitas tidak penuh, NIM tidak duplikat) sebelum melakukan `INSERT` ke tabel `Penghuni`. Mengembalikan status operasi melalui parameter `OUT`. Diakhiri dengan `SELECT p_status_code, p_status_message;` untuk memudahkan pengambilan nilai `OUT` di Python.
+    ```sql
+    DELIMITER $$
+    $$
+    CREATE PROCEDURE sp_TambahPenghuni (
+        IN p_nim VARCHAR(50),
+        IN p_nama_penghuni VARCHAR(255),
+        IN p_fakultas VARCHAR(255),
+        IN p_nomor_kamar INT,
+        IN p_asrama_id INT,
+        OUT p_status_code INT, 
+        OUT p_status_message VARCHAR(255)
+    )
+    BEGIN
+        DECLARE v_kamar_id_internal INT;
+        DECLARE v_kapasitas_kamar INT;
+        DECLARE v_jumlah_penghuni_saat_ini INT;
+
+        SET p_status_code = 4; -- Default error
+        SET p_status_message = 'Terjadi kesalahan tidak diketahui.';
+
+        SELECT kamar_id_internal INTO v_kamar_id_internal
+        FROM Kamar
+        WHERE nomor_kamar = p_nomor_kamar AND asrama_id = p_asrama_id;
+
+        IF v_kamar_id_internal IS NULL THEN
+            SET p_status_code = 1;
+            SET p_status_message = 'Gagal: Kamar tidak ditemukan.';
+        ELSE
+            SELECT kapasitas INTO v_kapasitas_kamar FROM Kamar WHERE kamar_id_internal = v_kamar_id_internal;
+            SELECT COUNT(*) INTO v_jumlah_penghuni_saat_ini FROM Penghuni WHERE kamar_id_internal = v_kamar_id_internal;
+
+            IF v_jumlah_penghuni_saat_ini >= v_kapasitas_kamar THEN
+                SET p_status_code = 2;
+                SET p_status_message = 'Gagal: Kamar sudah penuh.';
+            ELSE
+                IF EXISTS (SELECT 1 FROM Penghuni WHERE nim = p_nim) THEN
+                    SET p_status_code = 3;
+                    SET p_status_message = CONCAT('Gagal: NIM ', p_nim, ' sudah terdaftar.');
+                ELSE
+                    INSERT INTO Penghuni (nim, nama_penghuni, fakultas, kamar_id_internal)
+                    VALUES (p_nim, p_nama_penghuni, p_fakultas, v_kamar_id_internal);
+                    SET p_status_code = 0;
+                    SET p_status_message = 'Sukses: Penghuni berhasil ditambahkan.';
+                    -- Trigger trg_LogInsertPenghuni akan otomatis berjalan
+                END IF;
+            END IF;
+        END IF;
+        
+        -- Pilih parameter OUT sebagai hasil akhir
+        SELECT p_status_code, p_status_message;
+    END$$
+
+    $$
+    CREATE PROCEDURE sp_PindahKamarPenghuni (
+        IN p_nim VARCHAR(50),
+        IN p_nomor_kamar_baru INT,
+        IN p_asrama_id_baru INT,
+        OUT p_status_code INT, 
+        OUT p_status_message VARCHAR(255)
+    )
+    BEGIN
+        DECLARE v_kamar_id_internal_lama INT;
+        DECLARE v_kamar_id_internal_baru INT;
+        DECLARE v_kapasitas_kamar_baru INT;
+        DECLARE v_jumlah_penghuni_kamar_baru INT;
+        DECLARE v_penghuni_exists INT DEFAULT 0;
+
+        SET p_status_code = 4;
+        SET p_status_message = 'Terjadi kesalahan tidak diketahui.';
+
+        SELECT COUNT(*), kamar_id_internal INTO v_penghuni_exists, v_kamar_id_internal_lama FROM Penghuni WHERE nim = p_nim;
+        
+        IF v_penghuni_exists = 0 THEN
+            SET p_status_code = 1;
+            SET p_status_message = 'Gagal: Penghuni dengan NIM tersebut tidak ditemukan.';
+        ELSE
+            SELECT kamar_id_internal INTO v_kamar_id_internal_baru
+            FROM Kamar
+            WHERE nomor_kamar = p_nomor_kamar_baru AND asrama_id = p_asrama_id_baru;
+
+            IF v_kamar_id_internal_baru IS NULL THEN
+                SET p_status_code = 2;
+                SET p_status_message = 'Gagal: Kamar tujuan tidak ditemukan.';
+            ELSE
+                IF v_kamar_id_internal_lama = v_kamar_id_internal_baru THEN
+                    SET p_status_code = 0; 
+                    SET p_status_message = 'Info: Penghuni sudah berada di kamar tujuan.';
+                ELSE
+                    SELECT kapasitas INTO v_kapasitas_kamar_baru FROM Kamar WHERE kamar_id_internal = v_kamar_id_internal_baru;
+                    SELECT COUNT(*) INTO v_jumlah_penghuni_kamar_baru FROM Penghuni WHERE kamar_id_internal = v_kamar_id_internal_baru;
+
+                    IF v_jumlah_penghuni_kamar_baru >= v_kapasitas_kamar_baru THEN
+                        SET p_status_code = 3;
+                        SET p_status_message = 'Gagal: Kamar tujuan sudah penuh.';
+                    ELSE
+                        UPDATE Penghuni SET kamar_id_internal = v_kamar_id_internal_baru WHERE nim = p_nim;
+                        SET p_status_code = 0;
+                        SET p_status_message = 'Sukses: Penghuni berhasil dipindahkan.';
+                        -- Trigger trg_LogUpdatePenghuni akan otomatis berjalan
+                    END IF;
+                END IF;
+            END IF;
+        END IF;
+
+        -- Pilih parameter OUT sebagai hasil akhir
+        SELECT p_status_code, p_status_message;
+    END$$
+
+    DELIMITER ;
+    ```
     * **Penggunaan di Python (`DatabaseService.add_penghuni`)**: Memanggil prosedur ini menggunakan `self.cursor.callproc()`. Hasil parameter `OUT` diambil dari `self.cursor.stored_results()` dan digunakan untuk memberikan feedback ke pengguna.
 
 * **`sp_PindahKamarPenghuni`**:
