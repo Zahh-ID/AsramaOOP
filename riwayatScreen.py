@@ -15,7 +15,7 @@ class RiwayatAktivitasScreen(BaseScreen):
         style.configure("Riwayat.Treeview.Heading", background="#BFBFBF", foreground="black", font=('Arial', 10, 'bold'), relief="flat")
         style.map("Riwayat.Treeview.Heading", background=[('active', '#A0A0A0')])
 
-        self.create_canvas_text(self.app_instance.appwidth / 2, 50, text="Riwayat Perubahan Data", fill="#000000", font=("Cooper Black", 24, "bold"))
+        self.create_canvas_text(self.app_instance.appwidth / 2, 50, text="Riwayat Perubahan Data", fill="#F4F0FF", font=("Cooper Black", 24, "bold"))
 
         table_padding_horizontal = 30
         table_padding_top = 90 
