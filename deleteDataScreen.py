@@ -14,7 +14,7 @@ class DeleteDataScreen(BaseScreen):
     def setup_ui(self):
         self.create_canvas_text(560, 50, text=f"Hapus Data Kamar {self.kamar_id} Asrama {self.asrama_nama}", fill="#F4FEFF", font=("Cooper Black", 20, "bold"))
         opsi_display_db, _ = self.db_service.get_penghuni_in_kamar(self.kamar_id, self.asrama_id)
-        self.create_canvas_text(413, 290, text="Pilih Mahasiswa (NIM - Nama) untuk Dihapus", fill="#F4FEFF", font=("Arial", 12, "bold"))
+        self.create_canvas_text(520, 290, text="Pilih Mahasiswa (NIM - Nama) untuk Dihapus", fill="#F4FEFF", font=("Arial", 12, "bold"))
         mahasiswa_dropdown = self.add_widget(ttk.Combobox(self.canvas, textvariable=self.plh_mahasiswa_var,font=("Arial",15),state="readonly", values=opsi_display_db,width=34))
         mahasiswa_dropdown.place(x=350, y=310)
         mahasiswa_dropdown.bind("<<ComboboxSelected>>", self._on_mahasiswa_selected)

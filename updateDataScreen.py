@@ -21,18 +21,18 @@ class UpdateDataScreen(BaseScreen):
     def setup_ui(self):
         self.create_canvas_text(560, 50, text=f"Ubah Data Kamar {self.kamar_id} Asrama {self.asrama_nama}", fill="#F4FEFF", font=("Cooper Black", 20, "bold"))
         opsi_display_db, self.data_lengkap_mahasiswa_cache = self.db_service.get_penghuni_in_kamar(self.kamar_id, self.asrama_id)
-        self.create_canvas_text(413, 100, text="Pilih Mahasiswa (NIM - Nama)", fill="#F4FEFF", font=("Arial", 12, "bold"))
+        self.create_canvas_text(460, 110, text="Pilih Mahasiswa (NIM - Nama)", fill="#F4FEFF", font=("Arial", 12, "bold"))
         mahasiswa_dropdown = self.add_widget(ttk.Combobox(self.canvas, textvariable=self.plh_mahasiswa_var, font=("Arial",15), state="readonly", values=opsi_display_db, width=34))
         mahasiswa_dropdown.place(x=350, y=120)
         mahasiswa_dropdown.bind("<<ComboboxSelected>>", self._on_mahasiswa_selected)
-        self.create_canvas_text(386, 178, text="NIM Baru (Kosongkan jika tidak diubah)", fill="#F4FEFF", font=("Arial", 10, "bold"))
+        self.create_canvas_text(500, 178, text="NIM Baru (Kosongkan jika tidak diubah)", fill="#F4FEFF", font=("Arial", 12, "bold"))
         self.nim_baru_entry = self.add_widget(Entry(self.canvas, width=30, font=("Arial", 18), bg="#F4FEFF"))
         self.nim_baru_entry.place(x=350, y=190)
-        self.create_canvas_text(391, 258, text="Nama Baru (Kosongkan jika tidak diubah)", fill="#F4FEFF", font=("Arial", 10, "bold"))
+        self.create_canvas_text(510, 258, text="Nama Baru (Kosongkan jika tidak diubah)", fill="#F4FEFF", font=("Arial", 12, "bold"))
         self.nama_baru_entry = self.add_widget(Entry(self.canvas, width=30, font=("Arial", 18), bg="#F4FEFF"))
         self.nama_baru_entry.place(x=350, y=270)
         fakultas_list = ["","Teknik", "Ekonomi Bisnis", "Ilmu Sosial", "Kedokteran", "Sastra", "MIPA", "Ilmu Komputer", "Ilmu Keolahragaan", "Vokasi","Ilmu Pendidikan"]
-        self.create_canvas_text(405, 328, text="Fakultas Baru", fill="#F4FEFF", font=("Arial", 12, "bold"))
+        self.create_canvas_text(405, 340, text="Fakultas Baru", fill="#F4FEFF", font=("Arial", 12, "bold"))
         fakultas_dropdown_widget = self.add_widget(ttk.Combobox(self.canvas, textvariable=self.fakultas_baru_pilihan, values=fakultas_list,width=29, font=("Arial", 18), state="readonly"))
         fakultas_dropdown_widget.place(x=350, y=350)
         if opsi_display_db and not opsi_display_db[0].startswith("Info:") and not opsi_display_db[0].startswith("Kesalahan:"):

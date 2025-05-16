@@ -22,7 +22,7 @@ class PindahKamarScreen(BaseScreen):
                                 text=f"Pindah Kamar dari {self.asrama_nama_asal} - Kamar {self.kamar_id_asal}",
                                 fill="#F4FEFF", font=("Cooper Black", 20, "bold"))
 
-        y_current = 110
+        y_current = 200
         label_width = 150
         dropdown_width_chars = 30 
         
@@ -59,7 +59,7 @@ class PindahKamarScreen(BaseScreen):
         self.kamar_tujuan_dropdown = self.add_widget(ttk.Combobox(self.canvas, textvariable=self.selected_kamar_tujuan_var,
                                                                 values=[], width=dropdown_width_chars, state="disabled", font=("Arial", 14)))
         self.kamar_tujuan_dropdown.place(x=x_dropdown, y=y_current)
-        y_current += 70
+        y_current += 100
 
         button_width = 200
         x_button_pindah = self.app_instance.appwidth / 2 - button_width - 10

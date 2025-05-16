@@ -19,12 +19,12 @@ class KamarDetailScreen(BaseScreen):
         style.configure("Custom.Treeview.Heading", background="yellow", foreground="black", font=('Arial', 10, 'bold'), relief="flat")
         style.map("Custom.Treeview.Heading", background=[('active', '#FFD700')])
 
-        self.create_canvas_text(self.app_instance.appwidth / 2, 80, text=f"Asrama {self.asrama_nama} - Kamar {self.kamar_id}", fill="#000000", font=("Cooper Black", 22, "bold"))
+        self.create_canvas_text(self.app_instance.appwidth / 2, 80, text=f"Asrama {self.asrama_nama} - Kamar {self.kamar_id}", fill="#F4F0FF", font=("Cooper Black", 22, "bold"))
         info_text_x = self.app_instance.appwidth / 2
         info_text_y = 120
         jml_penghuni = self.db_service.get_jumlah_penghuni(self.kamar_id, self.asrama_id)
         kapasitas = self.db_service.get_kapasitas_kamar(self.kamar_id, self.asrama_id)
-        self.create_canvas_text(info_text_x, info_text_y, text=f"Data Penghuni ({jml_penghuni}/{kapasitas})", fill="#000000", font=("Cooper Black", 18, "bold"))
+        self.create_canvas_text(info_text_x, info_text_y, text=f"Data Penghuni ({jml_penghuni}/{kapasitas})", fill="#F4F0FF", font=("Cooper Black", 18, "bold"))
 
         table_padding_horizontal = 50
         table_padding_top = 20
@@ -66,9 +66,9 @@ class KamarDetailScreen(BaseScreen):
 
         y_buttons = 15
         tbl(self.canvas, 50, y_buttons, 150, 50, 10, 10, 90, 180, 270, 360, "red", "Kembali", lambda: self.screen_manager.show_kamar_list(self.asrama_id, self.asrama_nama))
-        tbl(self.canvas,210, y_buttons, 150, 50, 10, 10, 90, 180, 270, 360, "#F47B07", "Tambah Data", lambda: self.screen_manager.show_insert_data_form(self.kamar_id))
-        tbl(self.canvas,370, y_buttons, 150, 50, 10, 10, 90, 180, 270, 360, "#F47B07", "Ubah Data", lambda: self.screen_manager.show_update_data_form(self.kamar_id))
-        tbl(self.canvas,530, y_buttons, 150, 50, 10, 10, 90, 180, 270, 360, "#F47B07", "Hapus Data", lambda: self.screen_manager.show_delete_data_form(self.kamar_id))
+        tbl(self.canvas,293, y_buttons, 150, 50, 10, 10, 90, 180, 270, 360, "#F47B07", "Tambah Data", lambda: self.screen_manager.show_insert_data_form(self.kamar_id))
+        tbl(self.canvas,600, y_buttons, 150, 50, 10, 10, 90, 180, 270, 360, "#F47B07", "Ubah Data", lambda: self.screen_manager.show_update_data_form(self.kamar_id))
+        tbl(self.canvas,880, y_buttons, 150, 50, 10, 10, 90, 180, 270, 360, "#F47B07", "Hapus Data", lambda: self.screen_manager.show_delete_data_form(self.kamar_id))
         
         y_pindah_button = table_y + treeview_display_height + 25 
         lebar_tombol_pindah = 200
