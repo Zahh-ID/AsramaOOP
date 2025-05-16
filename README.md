@@ -26,7 +26,7 @@ Aplikasi ini adalah sistem manajemen asrama berbasis desktop yang dibangun mengg
 ## Struktur Kode (Kelas Utama)
 
 Aplikasi ini dibangun dengan beberapa kelas utama yang saling berinteraksi:
-
+dari file [dbService](https://github.com/Zahh-ID/AsramaOOP/blob/main/dbService.py)
 1.  **`DatabaseService`**:
     * Bertanggung jawab untuk semua interaksi dengan database MySQL.
     * Mengenkapsulasi kueri SQL, pemanggilan Stored Procedure, dan koneksi database.
