@@ -26,19 +26,19 @@ Aplikasi ini adalah sistem manajemen asrama berbasis desktop yang dibangun mengg
 ## Struktur Kode (Kelas Utama)
 
 Aplikasi ini dibangun dengan beberapa kelas utama yang saling berinteraksi:
-1.  **`DatabaseService` dari file [dbService](https://github.com/Zahh-ID/AsramaOOP/blob/main/dbService.py)**:
+1.  **`DatabaseService`**:
     * Bertanggung jawab untuk semua interaksi dengan database MySQL.
     * Mengenkapsulasi kueri SQL, pemanggilan Stored Procedure, dan koneksi database.
     * Menggunakan View (`vw_DetailKamarPenghuni`, `vw_DaftarPenghuniLengkap`) untuk pengambilan data yang lebih efisien dan terstruktur.
     * Memanggil Stored Procedure (`sp_TambahPenghuni`, `sp_PindahKamarPenghuni`) untuk operasi data yang kompleks.
 
-2.  **`BaseScreen` dari file [baseScreen](https://github.com/Zahh-ID/AsramaOOP/blob/main/baseScreen.py)**:
+2.  **`BaseScreen`**:
     * Kelas dasar abstrak untuk semua layar (screen) dalam aplikasi.
     * Menyediakan fungsionalitas umum seperti pembersihan layar, akses ke `ScreenManager` dan `DatabaseService`.
     * Mendefinisikan metode `setup_ui()` yang harus diimplementasikan oleh setiap layar turunan (polimorfisme).
 
 3.  **Kelas Layar Turunan dari `BaseScreen`**:
-    * **`[MainMenuScreen](https://github.com/Zahh-ID/AsramaOOP/blob/main/mainMenuScreen.py)`**: Tampilan menu utama aplikasi.
+    * **`MainMenuScreen`**: Tampilan menu utama aplikasi.
     * **`AsramaSelectionScreen`**: Layar untuk memilih asrama.
     * **`KamarListScreen`**: Layar untuk menampilkan daftar kamar dalam satu asrama.
     * **`KamarDetailScreen`**: Layar untuk menampilkan detail kamar, termasuk daftar penghuni dalam bentuk tabel, dan tombol-tombol operasi.
@@ -68,12 +68,12 @@ Enkapsulasi adalah mekanisme membungkus data (atribut) dan metode (fungsi yang b
     * **Metode yang dibungkus**: Semua logika untuk berinteraksi dengan database (`_connect`, `get_all_asrama`, `add_penghuni`, dll.).
     * **Penyembunyian Detail**: Kelas lain tidak perlu tahu bagaimana kueri SQL ditulis atau bagaimana transaksi dikelola. Mereka hanya memanggil metode publik seperti `db_service.add_penghuni(...)`.
 
-* **`AppGui`**:
+* **`App`**:
     * **Data yang dibungkus**: Window Tkinter (`self.window`), canvas (`self.canvas`), instance `DatabaseService` dan `ScreenManager`.
     * **Metode yang dibungkus**: Logika inisialisasi aplikasi, pemuatan aset, penggambaran background, dan penutupan aplikasi.
 
 * **`ScreenManager`**:
-    * **Data yang dibungkus**: Referensi ke `AppGui`, `DatabaseService`, layar aktif saat ini (`self.current_screen_instance`), dan konteks navigasi.
+    * **Data yang dibungkus**: Referensi ke `App`, `DatabaseService`, layar aktif saat ini (`self.current_screen_instance`), dan konteks navigasi.
     * **Metode yang dibungkus**: Logika untuk menampilkan dan mengganti layar. Kelas layar hanya memanggil metode navigasi di `ScreenManager`.
 
 * **Kelas Layar (turunan `BaseScreen`)**:
@@ -160,7 +160,7 @@ Trigger adalah blok kode SQL yang secara otomatis dieksekusi sebagai respons ter
 2.  **Konfigurasi Database MySQL**:
     * Pastikan server MySQL Anda berjalan.
     * Buat sebuah database baru di MySQL, misalnya dengan nama `asrama_db_mysql`.
-    * Sesuaikan detail koneksi database (host, user, password, nama database) di dalam kelas `AppGui` pada file Python utama jika berbeda dari default:
+    * Sesuaikan detail koneksi database (host, user, password, nama database) di dalam kelas `App` pada file Python utama jika berbeda dari default:
         ```python
         MYSQL_HOST = "localhost"
         MYSQL_USER = "root"
