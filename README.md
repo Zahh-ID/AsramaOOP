@@ -179,7 +179,7 @@ View adalah tabel virtual yang isinya didefinisikan oleh sebuah kueri SQL.
             SELECT
                 P.nim,
                 P.nama_penghuni,
-                F.nama_fakultas AS fakultas, -- Mengambil nama fakultas dari tabel Fakultas
+                F.nama_fakultas AS fakultas,
                 K.nomor_kamar,
                 A.nama_asrama,
                 K.asrama_id AS id_asrama_penghuni,
@@ -197,12 +197,13 @@ View adalah tabel virtual yang isinya didefinisikan oleh sebuah kueri SQL.
     * **Definisi SQL**: Menggabungkan data dari tabel `Penghuni`, `Kamar`, dan `Asrama` untuk menampilkan detail lengkap setiap penghuni termasuk nama kamar dan asramanya.
         ```sql
         CREATE OR REPLACE VIEW vw_DaftarPenghuniLengkap AS
-        SELECT
-            P.nim, P.nama_penghuni, P.fakultas, K.nomor_kamar, A.nama_asrama,
-            K.asrama_id AS id_asrama_penghuni, A.asrama_id AS id_asrama_kamar, K.kamar_id_internal
-        FROM Penghuni P
-        JOIN Kamar K ON P.kamar_id_internal = K.kamar_id_internal
-        JOIN Asrama A ON K.asrama_id = A.asrama_id;
+            SELECT
+                P.nim, P.nama_penghuni, P.fakultas, K.nomor_kamar, A.nama_asrama,
+                K.asrama_id AS id_asrama_penghuni, A.asrama_id AS id_asrama_kamar, K.kamar_id_internal
+            FROM Penghuni P
+            JOIN Kamar K ON P.kamar_id_internal = K.kamar_id_internal
+            JOIN Asrama A ON K.asrama_id = A.asrama_id;
+
         ```
     * **Penggunaan di Python (`DatabaseService`)**: Metode `get_penghuni_in_kamar` menggunakan view ini untuk mengisi tabel daftar penghuni di `KamarDetailScreen` dan dropdown di layar lain.
 
@@ -212,11 +213,10 @@ Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server databa
     * **Definisi SQL**: Menerima parameter IN (nim, nama, fakultas, nomor kamar, id asrama) dan parameter OUT (status_code, status_message). Melakukan validasi (kamar ditemukan, kapasitas tidak penuh, NIM tidak duplikat) sebelum melakukan `INSERT` ke tabel `Penghuni`. Mengembalikan status operasi melalui parameter `OUT`. Diakhiri dengan `SELECT p_status_code, p_status_message;` untuk memudahkan pengambilan nilai `OUT` di Python.
     ```sql
     DELIMITER $$
-    $$
     CREATE PROCEDURE sp_TambahPenghuni (
         IN p_nim VARCHAR(50),
         IN p_nama_penghuni VARCHAR(255),
-        IN p_fakultas VARCHAR(255),
+        IN p_nama_fakultas_input VARCHAR(255), -- Menerima nama fakultas
         IN p_nomor_kamar INT,
         IN p_asrama_id INT,
         OUT p_status_code INT, 
@@ -226,9 +226,19 @@ Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server databa
         DECLARE v_kamar_id_internal INT;
         DECLARE v_kapasitas_kamar INT;
         DECLARE v_jumlah_penghuni_saat_ini INT;
+        DECLARE v_fakultas_id INT DEFAULT NULL;
 
-        SET p_status_code = 4; -- Default error
+        SET p_status_code = 4; 
         SET p_status_message = 'Terjadi kesalahan tidak diketahui.';
+
+        -- Dapatkan atau buat fakultas_id
+        IF p_nama_fakultas_input IS NOT NULL AND p_nama_fakultas_input != '' THEN
+            SELECT fakultas_id INTO v_fakultas_id FROM Fakultas WHERE nama_fakultas = p_nama_fakultas_input;
+            IF v_fakultas_id IS NULL THEN
+                INSERT INTO Fakultas (nama_fakultas) VALUES (p_nama_fakultas_input);
+                SET v_fakultas_id = LAST_INSERT_ID();
+            END IF;
+        END IF;
 
         SELECT kamar_id_internal INTO v_kamar_id_internal
         FROM Kamar
@@ -249,27 +259,23 @@ Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server databa
                     SET p_status_code = 3;
                     SET p_status_message = CONCAT('Gagal: NIM ', p_nim, ' sudah terdaftar.');
                 ELSE
-                    INSERT INTO Penghuni (nim, nama_penghuni, fakultas, kamar_id_internal)
-                    VALUES (p_nim, p_nama_penghuni, p_fakultas, v_kamar_id_internal);
+                    INSERT INTO Penghuni (nim, nama_penghuni, fakultas_id, kamar_id_internal)
+                    VALUES (p_nim, p_nama_penghuni, v_fakultas_id, v_kamar_id_internal);
                     SET p_status_code = 0;
                     SET p_status_message = 'Sukses: Penghuni berhasil ditambahkan.';
-                    -- Trigger trg_LogInsertPenghuni akan otomatis berjalan
                 END IF;
             END IF;
         END IF;
         
-        -- Pilih parameter OUT sebagai hasil akhir
         SELECT p_status_code, p_status_message;
     END$$
 
-    DELIMITER ;
     ```
     * **Penggunaan di Python (`DatabaseService.add_penghuni`)**: Memanggil prosedur ini menggunakan `self.cursor.callproc()`. Hasil parameter `OUT` diambil dari `self.cursor.stored_results()` dan digunakan untuk memberikan feedback ke pengguna.
 
 * **`sp_PindahKamarPenghuni`**:
     * **Definisi SQL**: Menerima parameter IN (nim, nomor kamar baru, id asrama baru) dan parameter OUT (status_code, status_message). Melakukan validasi (penghuni ada, kamar tujuan ada, kapasitas kamar tujuan) sebelum melakukan `UPDATE` pada `kamar_id_internal` di tabel `Penghuni`. Diakhiri dengan `SELECT p_status_code, p_status_message;`.
     ```sql
-    DELIMITER $$
     CREATE PROCEDURE sp_PindahKamarPenghuni (
         IN p_nim VARCHAR(50),
         IN p_nomor_kamar_baru INT,
@@ -315,7 +321,6 @@ Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server databa
                         UPDATE Penghuni SET kamar_id_internal = v_kamar_id_internal_baru WHERE nim = p_nim;
                         SET p_status_code = 0;
                         SET p_status_message = 'Sukses: Penghuni berhasil dipindahkan.';
-                        -- Trigger trg_LogUpdatePenghuni akan otomatis berjalan
                     END IF;
                 END IF;
             END IF;
@@ -326,6 +331,7 @@ Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server databa
     END$$
 
     DELIMITER ;
+
     ```
     * **Penggunaan di Python (`DatabaseService.pindah_kamar_penghuni`)**: Mirip dengan `add_penghuni`, memanggil prosedur dan mengambil status operasinya.
 
@@ -355,18 +361,22 @@ CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
 * **`trg_LogInsertPenghuni`**:
     ```sql
     DELIMITER $$
-
     CREATE TRIGGER trg_LogInsertPenghuni
     AFTER INSERT ON Penghuni
     FOR EACH ROW
     BEGIN
         DECLARE v_nomor_kamar INT;
         DECLARE v_nama_asrama VARCHAR(255);
+        DECLARE v_nama_fakultas VARCHAR(255) DEFAULT NULL;
 
         SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar, v_nama_asrama
         FROM Kamar K
         JOIN Asrama A ON K.asrama_id = A.asrama_id
         WHERE K.kamar_id_internal = NEW.kamar_id_internal;
+
+        IF NEW.fakultas_id IS NOT NULL THEN
+            SELECT nama_fakultas INTO v_nama_fakultas FROM Fakultas WHERE fakultas_id = NEW.fakultas_id;
+        END IF;
 
         INSERT INTO AuditLogAktivitasPenghuni (
             nim, nama_penghuni_baru, fakultas_baru,
@@ -374,11 +384,12 @@ CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
             aksi, keterangan_tambahan
         )
         VALUES (
-            NEW.nim, NEW.nama_penghuni, NEW.fakultas,
+            NEW.nim, NEW.nama_penghuni, v_nama_fakultas,
             NEW.kamar_id_internal, v_nomor_kamar, v_nama_asrama,
             'INSERT', CONCAT('Penghuni baru ditambahkan ke kamar ', v_nomor_kamar, ' Asrama ', v_nama_asrama)
         );
     END$$
+
     ```
     * **Event**: `AFTER INSERT ON Penghuni`
     * **Aksi**: Mencatat data penghuni yang baru ditambahkan (NIM, nama, fakultas, detail kamar baru) ke dalam tabel `AuditLogAktivitasPenghuni` dengan aksi 'INSERT'.
@@ -389,29 +400,41 @@ CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
     AFTER UPDATE ON Penghuni
     FOR EACH ROW
     BEGIN
-        DECLARE v_nomor_kamar_lama INT;
-        DECLARE v_nama_asrama_lama VARCHAR(255);
-        DECLARE v_nomor_kamar_baru INT;
-        DECLARE v_nama_asrama_baru VARCHAR(255);
+        DECLARE v_nomor_kamar_lama INT DEFAULT NULL;
+        DECLARE v_nama_asrama_lama VARCHAR(255) DEFAULT NULL;
+        DECLARE v_nama_fakultas_lama VARCHAR(255) DEFAULT NULL;
+        DECLARE v_nomor_kamar_baru INT DEFAULT NULL;
+        DECLARE v_nama_asrama_baru VARCHAR(255) DEFAULT NULL;
+        DECLARE v_nama_fakultas_baru VARCHAR(255) DEFAULT NULL;
         DECLARE v_keterangan TEXT DEFAULT 'Data penghuni diubah.';
 
         IF OLD.kamar_id_internal IS NOT NULL THEN
             SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar_lama, v_nama_asrama_lama
-            FROM Kamar K
-            JOIN Asrama A ON K.asrama_id = A.asrama_id
+            FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id
             WHERE K.kamar_id_internal = OLD.kamar_id_internal;
+        END IF;
+        IF OLD.fakultas_id IS NOT NULL THEN
+            SELECT nama_fakultas INTO v_nama_fakultas_lama FROM Fakultas WHERE fakultas_id = OLD.fakultas_id;
         END IF;
 
         IF NEW.kamar_id_internal IS NOT NULL THEN
             SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar_baru, v_nama_asrama_baru
-            FROM Kamar K
-            JOIN Asrama A ON K.asrama_id = A.asrama_id
+            FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id
             WHERE K.kamar_id_internal = NEW.kamar_id_internal;
+        END IF;
+        IF NEW.fakultas_id IS NOT NULL THEN
+            SELECT nama_fakultas INTO v_nama_fakultas_baru FROM Fakultas WHERE fakultas_id = NEW.fakultas_id;
         END IF;
 
         IF OLD.kamar_id_internal != NEW.kamar_id_internal THEN
-            SET v_keterangan = CONCAT('Penghuni pindah dari kamar ', IFNULL(v_nomor_kamar_lama, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama_lama, 'N/A'), ' ke kamar ', IFNULL(v_nomor_kamar_baru, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama_baru, 'N/A'), '.');
+            SET v_keterangan = CONCAT('Penghuni pindah dari kamar ', IFNULL(v_nomor_kamar_lama, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama_lama, 'N/A'), 
+                                    ' ke kamar ', IFNULL(v_nomor_kamar_baru, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama_baru, 'N/A'), '.');
+        ELSEIF OLD.fakultas_id != NEW.fakultas_id OR (OLD.fakultas_id IS NULL AND NEW.fakultas_id IS NOT NULL) OR (OLD.fakultas_id IS NOT NULL AND NEW.fakultas_id IS NULL) THEN
+            SET v_keterangan = CONCAT('Fakultas diubah dari ', IFNULL(v_nama_fakultas_lama, 'N/A'), ' menjadi ', IFNULL(v_nama_fakultas_baru, 'N/A'), '.');
+        ELSEIF OLD.nama_penghuni != NEW.nama_penghuni THEN
+            SET v_keterangan = CONCAT('Nama diubah dari ', OLD.nama_penghuni, ' menjadi ', NEW.nama_penghuni, '.');
         END IF;
+
 
         INSERT INTO AuditLogAktivitasPenghuni (
             nim,
@@ -425,13 +448,14 @@ CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
         VALUES (
             OLD.nim, 
             OLD.nama_penghuni, NEW.nama_penghuni,
-            OLD.fakultas, NEW.fakultas,
+            v_nama_fakultas_lama, v_nama_fakultas_baru,
             OLD.kamar_id_internal, NEW.kamar_id_internal,
             v_nomor_kamar_lama, v_nama_asrama_lama,
             v_nomor_kamar_baru, v_nama_asrama_baru,
             'UPDATE', v_keterangan
         );
     END$$
+
     ```
     * **Event**: `AFTER UPDATE ON Penghuni`
     * **Aksi**: Mencatat nilai lama dan baru untuk nama, fakultas, dan detail kamar penghuni yang diubah ke dalam `AuditLogAktivitasPenghuni` dengan aksi 'UPDATE'. Juga memberikan keterangan jika terjadi perpindahan kamar.
@@ -442,14 +466,17 @@ CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
     AFTER DELETE ON Penghuni
     FOR EACH ROW
     BEGIN
-        DECLARE v_nomor_kamar INT;
-        DECLARE v_nama_asrama VARCHAR(255);
+        DECLARE v_nomor_kamar INT DEFAULT NULL;
+        DECLARE v_nama_asrama VARCHAR(255) DEFAULT NULL;
+        DECLARE v_nama_fakultas VARCHAR(255) DEFAULT NULL;
 
         IF OLD.kamar_id_internal IS NOT NULL THEN
             SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar, v_nama_asrama
-            FROM Kamar K
-            JOIN Asrama A ON K.asrama_id = A.asrama_id
+            FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id
             WHERE K.kamar_id_internal = OLD.kamar_id_internal;
+        END IF;
+        IF OLD.fakultas_id IS NOT NULL THEN
+            SELECT nama_fakultas INTO v_nama_fakultas FROM Fakultas WHERE fakultas_id = OLD.fakultas_id;
         END IF;
 
         INSERT INTO AuditLogAktivitasPenghuni (
@@ -458,13 +485,14 @@ CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
             aksi, keterangan_tambahan
         )
         VALUES (
-            OLD.nim, OLD.nama_penghuni, OLD.fakultas,
+            OLD.nim, OLD.nama_penghuni, v_nama_fakultas,
             OLD.kamar_id_internal, v_nomor_kamar, v_nama_asrama,
             'DELETE', CONCAT('Penghuni dihapus dari kamar ', IFNULL(v_nomor_kamar, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama, 'N/A'))
         );
     END$$
 
     DELIMITER ;
+
     ```
     * **Event**: `AFTER DELETE ON Penghuni`
     * **Aksi**: Mencatat data penghuni yang dihapus (NIM, nama lama, fakultas lama, detail kamar lama) ke dalam `AuditLogAktivitasPenghuni` dengan aksi 'DELETE'.
