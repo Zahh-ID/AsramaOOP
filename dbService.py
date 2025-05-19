@@ -7,14 +7,16 @@ class DatabaseService:
     Menggunakan View dan Stored Procedure.
     """
     def __init__(self, host, user, password, database_name):
-        self.__host = host
-        self.__user = user
-        self.__password = password
-        self.__database_name = database_name
-        self.__conn = None
-        self.__cursor = None
+        self.host = host
+        self.user = user
+        self.password = password
+        self.database_name = database_name
+        self.conn = None
+        self.cursor = None
         self._connect()
         if self.conn:
+            # DDL utama (tabel Asrama, Kamar, Penghuni, View, Trigger, SP)
+            # sebaiknya sudah dijalankan di server MySQL melalui skrip SQL terpisah.
             self._create_main_tables_if_not_exist() 
             self._ensure_log_table_exists() 
 
@@ -22,12 +24,12 @@ class DatabaseService:
         """Membuat koneksi ke database MySQL."""
         try:
             self.conn = mysql.connector.connect(
-                host=self.__host,
-                user=self.__user,
-                password=self.__password,
-                database=self.__database_name
+                host=self.host,
+                user=self.user,
+                password=self.password,
+                database=self.database_name
             )
-            self.cursor = self.conn.cursor(dictionary=True) 
+            self.cursor = self.conn.cursor(dictionary=True) # dictionary=True penting untuk akses hasil SP
             print("Berhasil terhubung ke database MySQL.")
         except mysql.connector.Error as err:
             print(f"Kesalahan koneksi database MySQL: {err}")
@@ -50,6 +52,7 @@ class DatabaseService:
             return None if fetch_one or fetch_all else False
         try:
             self.cursor.execute(query, params)
+            # Commit hanya untuk DML jika tidak dikelola di tempat lain (misalnya oleh SP yang auto-commit atau DDL)
             if not is_ddl_or_commit_managed_elsewhere and \
                query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")):
                 self.conn.commit()
@@ -57,7 +60,7 @@ class DatabaseService:
                 return self.cursor.fetchone()
             if fetch_all:
                 return self.cursor.fetchall()
-            return True
+            return True # Sukses untuk DDL atau operasi tanpa fetch yang berhasil
         except mysql.connector.Error as err:
             print(f"Kesalahan kueri MySQL: {err}\nKueri: {query}\nParams: {params}")
             messagebox.showerror("Kesalahan Kueri Database", f"Terjadi kesalahan saat menjalankan kueri: {err}")
@@ -100,6 +103,8 @@ class DatabaseService:
             print("Tabel utama Asrama, Kamar, Penghuni telah diperiksa/dibuat.")
         except mysql.connector.Error as e:
             print(f"Kesalahan pembuatan tabel utama MySQL: {e}")
+            messagebox.showerror("Kesalahan Database", f"Gagal membuat tabel utama di MySQL: {e}")
+
 
     def _ensure_log_table_exists(self):
         """Memastikan tabel log aktivitas ada."""
@@ -112,13 +117,30 @@ class DatabaseService:
             nomor_kamar_lama INT DEFAULT NULL, nama_asrama_lama VARCHAR(255) DEFAULT NULL,
             nomor_kamar_baru INT DEFAULT NULL, nama_asrama_baru VARCHAR(255) DEFAULT NULL,
             aksi VARCHAR(10) NOT NULL, waktu_aksi TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            keterangan_tambahan TEXT DEFAULT NULL
+            user_aksi VARCHAR(100) DEFAULT NULL, keterangan_tambahan TEXT DEFAULT NULL
         ) ENGINE=InnoDB;
         """
         if self._execute_query(ddl_log_table, is_ddl_or_commit_managed_elsewhere=True):
             self.conn.commit() 
             print("Tabel AuditLogAktivitasPenghuni telah diperiksa/dibuat.")
 
+    def _update_data_action(self):
+        if not self.selected_mahasiswa_nim_original:
+            messagebox.showwarning("Peringatan", "Pilih mahasiswa yang akan diubah datanya.")
+            return
+        nim_baru = self.nim_baru_entry.get().strip()
+        nama_baru = self.nama_baru_entry.get().strip()
+        fakultas_baru = self.fakultas_baru_pilihan.get()
+        current_nama_entry_val = self.nama_baru_entry.get()
+        if not nama_baru and any(char.isalnum() for char in current_nama_entry_val):
+             messagebox.showwarning("Input Tidak Valid", "Nama baru tidak boleh dikosongkan jika field diisi.")
+             return
+        current_nim_entry_val = self.nim_baru_entry.get()
+        if not nim_baru and any(char.isalnum() for char in current_nim_entry_val):
+             messagebox.showwarning("Input Tidak Valid", "NIM baru tidak boleh dikosongkan jika field diisi.")
+             return
+        if self.db_service.update_penghuni(self.selected_mahasiswa_nim_original, nim_baru, nama_baru, fakultas_baru):
+            self.screen_manager.show_kamar_detail(self.kamar_id)
 
     # --- Metode CRUD untuk Asrama ---
     def get_all_asrama(self):
@@ -148,6 +170,13 @@ class DatabaseService:
         """Mengambil semua nomor kamar dalam satu asrama."""
         query = "SELECT nomor_kamar FROM Kamar WHERE asrama_id = %s ORDER BY nomor_kamar ASC"
         return self._execute_query(query, (asrama_id_val,), fetch_all=True) or []
+    
+    def get_fakultas_id_by_name(self, nama_fakultas):
+        """Mendapatkan fakultas_id berdasarkan nama_fakultas."""
+        if not nama_fakultas: return None
+        query = "SELECT fakultas_id FROM Fakultas WHERE nama_fakultas = %s"
+        result = self._execute_query(query, (nama_fakultas,), fetch_one=True)
+        return result['fakultas_id'] if result else None
 
 
     # --- Metode CRUD untuk Penghuni ---
@@ -180,7 +209,8 @@ class DatabaseService:
         try:
             # SP sp_TambahPenghuni expects 7 parameters: 5 IN, 2 OUT.
             # Pass a list/tuple of 7 elements to callproc.
-            # The last 2 are placeholders for OUT params.
+            # The last 2 are placeholders for OUT params, their initial values don't matter here
+            # as we will fetch the OUT params from the stored_results.
             args_for_callproc = [nim, nama, fakultas, nomor_kamar_val, asrama_id_val, None, None] 
             
             self.cursor.callproc('sp_TambahPenghuni', args_for_callproc) 
@@ -192,7 +222,7 @@ class DatabaseService:
                 break 
 
             if out_params_dict:
-                status_code = out_params_dict.get('p_status_code') 
+                status_code = out_params_dict.get('p_status_code') # Gunakan .get() untuk keamanan
                 status_message = out_params_dict.get('p_status_message')
 
                 if status_code == 0: 
@@ -203,7 +233,7 @@ class DatabaseService:
                     messagebox.showerror("Gagal Menambah Penghuni", status_message if status_message else "Status tidak diketahui dari SP.")
                     return False
             else:
-                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Tambah Penghuni (hasil SELECT tidak ditemukan).")
+                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Tambah Penghuni.")
                 return False
         except mysql.connector.Error as err:
             messagebox.showerror("Kesalahan Database SP", f"Gagal memanggil sp_TambahPenghuni: {err}")
@@ -242,7 +272,7 @@ class DatabaseService:
                     messagebox.showerror("Gagal Pindah Kamar", status_message if status_message else "Status tidak diketahui dari SP.")
                     return False, status_message
             else:
-                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Pindah Kamar (hasil SELECT tidak ditemukan).")
+                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Pindah Kamar.")
                 return False, "Gagal mengambil status SP."
         except mysql.connector.Error as err:
             messagebox.showerror("Kesalahan Database SP", f"Gagal memanggil sp_PindahKamarPenghuni: {err}")
@@ -250,59 +280,87 @@ class DatabaseService:
                 if self.conn.in_transaction: self.conn.rollback()
             except: pass
             return False, str(err)
+    
 
 
-    def update_penghuni(self, nim_original, nim_baru, nama_baru, fakultas_baru):
+    def update_penghuni(self, nim_original, nim_baru, nama_baru, nama_fakultas_baru):
         """Memperbarui data penghuni (Trigger akan mencatat log)."""
         if not self.conn or not self.conn.is_connected():
             messagebox.showerror("Kesalahan Database", "Tidak ada koneksi ke database MySQL.")
             return False
 
+        # 1. Periksa apakah NIM original ada di database
+        check_exists_query = "SELECT 1 FROM Penghuni WHERE nim = %s"
+        self.cursor.execute(check_exists_query, (nim_original,))
+        if not self.cursor.fetchone():
+            messagebox.showwarning("Perhatian", f"Tidak ada data penghuni yang cocok dengan NIM original: {nim_original}.")
+            return False
+
         updates = []
         params = []
-
+        
+        # Validasi dan persiapan update NIM baru
         if nim_baru and nim_original != nim_baru:
-            check_nim_query = "SELECT 1 FROM Penghuni WHERE nim = %s"
-            self.cursor.execute(check_nim_query, (nim_baru,))
+            if not nim_baru.isdigit(): # Validasi NIM baru harus angka
+                messagebox.showerror("Kesalahan Input", "NIM baru harus berupa angka.")
+                return False
+            check_nim_conflict_query = "SELECT 1 FROM Penghuni WHERE nim = %s"
+            self.cursor.execute(check_nim_conflict_query, (nim_baru,))
             if self.cursor.fetchone():
                 messagebox.showerror("Kesalahan", f"NIM baru '{nim_baru}' sudah digunakan oleh penghuni lain.")
                 return False
             updates.append("nim = %s")
             params.append(nim_baru)
-        if nama_baru:
+        
+        # Persiapan update nama
+        if nama_baru: 
             updates.append("nama_penghuni = %s")
             params.append(nama_baru)
-        if fakultas_baru is not None:
-            updates.append("fakultas = %s")
-            params.append(fakultas_baru)
 
+        # Persiapan update fakultas
+        fakultas_id_to_update = None 
+        if nama_fakultas_baru is not None: 
+            if nama_fakultas_baru == "": 
+                 fakultas_id_to_update = None 
+                 updates.append("fakultas_id = %s") 
+                 params.append(fakultas_id_to_update)
+            else:
+                fakultas_id_to_update = self.get_fakultas_id_by_name(nama_fakultas_baru)
+                if fakultas_id_to_update is None: 
+                    try: 
+                        self.cursor.execute("INSERT INTO Fakultas (nama_fakultas) VALUES (%s)", (nama_fakultas_baru,))
+                        fakultas_id_to_update = self.cursor.lastrowid 
+                        if fakultas_id_to_update: 
+                            self.conn.commit() 
+                            print(f"Fakultas baru '{nama_fakultas_baru}' ditambahkan dengan ID: {fakultas_id_to_update}")
+                        else: 
+                            messagebox.showerror("Kesalahan", f"Gagal menambahkan fakultas baru '{nama_fakultas_baru}'.")
+                            return False
+                    except mysql.connector.Error as e_fak:
+                        messagebox.showerror("Kesalahan Database", f"Gagal menambahkan fakultas baru: {e_fak}")
+                        return False
+                updates.append("fakultas_id = %s")
+                params.append(fakultas_id_to_update)
+        
         if not updates:
-            messagebox.showinfo("Info", "Tidak ada data yang diubah.")
-            return True
+            messagebox.showinfo("Info", "Tidak ada data yang diubah (nilai baru sama dengan nilai lama atau tidak ada input perubahan).")
+            return True 
 
-        params.append(nim_original)
+        params_for_update = list(params) 
+        params_for_update.append(nim_original)
         query = f"UPDATE Penghuni SET {', '.join(updates)} WHERE nim = %s"
 
-        success = self._execute_query(query, tuple(params), is_ddl_or_commit_managed_elsewhere=False)
-        if success and self.cursor.rowcount > 0:
-             messagebox.showinfo("Sukses", "Data penghuni berhasil diubah.")
-             return True
-        elif success and self.cursor.rowcount == 0:
-             messagebox.showwarning("Perhatian", "Tidak ada data penghuni yang cocok dengan NIM original atau tidak ada perubahan aktual.")
-             return False 
-        return False
-
-
-    def delete_penghuni(self, nim):
-        """Menghapus data penghuni (Trigger akan mencatat log)."""
-        success = self._execute_query("DELETE FROM Penghuni WHERE nim = %s", (nim,), is_ddl_or_commit_managed_elsewhere=False)
-        if success and self.cursor.rowcount > 0:
-            messagebox.showinfo("Sukses", f"Data penghuni dengan NIM {nim} berhasil dihapus.")
-            return True
-        elif success and self.cursor.rowcount == 0:
-            messagebox.showwarning("Gagal", f"Penghuni dengan NIM {nim} tidak ditemukan.")
+        success = self._execute_query(query, tuple(params_for_update), is_ddl_or_commit_managed_elsewhere=False)
+        
+        if success:
+            if self.cursor.rowcount > 0:
+                messagebox.showinfo("Sukses", "Data penghuni berhasil diubah.")
+                return True
+            else:
+                messagebox.showwarning("Perhatian", "Tidak ada perubahan aktual pada data (data baru mungkin sama dengan data lama).")
+                return False # Tetap dianggap berhasil karena operasi valid
+        else:
             return False
-        return False
 
     def get_audit_log_penghuni(self, limit=100): 
         """Mengambil data log aktivitas penghuni dengan batasan jumlah."""
@@ -314,18 +372,30 @@ class DatabaseService:
                 nim, 
                 IFNULL(nama_penghuni_baru, nama_penghuni_lama) AS nama_terkait,
                 IF(aksi = 'INSERT', 
-                   CONCAT('Ke: ', IFNULL(nomor_kamar_baru, 'N/A'), ' (', IFNULL(nama_asrama_baru, 'N/A'), ')'),
+                   CONCAT('Ke: ', IFNULL(nomor_kamar_baru, 'N/A'), ' (', IFNULL(nama_asrama_baru, 'N/A'), ') - Fak: ', IFNULL(fakultas_baru, 'N/A')),
                    IF(aksi = 'DELETE',
-                      CONCAT('Dari: ', IFNULL(nomor_kamar_lama, 'N/A'), ' (', IFNULL(nama_asrama_lama, 'N/A'), ')'),
-                      CONCAT('Dari: ', IFNULL(nomor_kamar_lama, 'N/A'), ' (', IFNULL(nama_asrama_lama, 'N/A'), ') ke: ', IFNULL(nomor_kamar_baru, 'N/A'), ' (', IFNULL(nama_asrama_baru, 'N/A'), ')')
+                      CONCAT('Dari: ', IFNULL(nomor_kamar_lama, 'N/A'), ' (', IFNULL(nama_asrama_lama, 'N/A'), ') - Fak: ', IFNULL(fakultas_lama, 'N/A')),
+                      CONCAT('Dari: ', IFNULL(nomor_kamar_lama, 'N/A'), ' (', IFNULL(nama_asrama_lama, 'N/A'), ') Fak: ', IFNULL(fakultas_lama, 'N/A'),
+                             ' Ke: ', IFNULL(nomor_kamar_baru, 'N/A'), ' (', IFNULL(nama_asrama_baru, 'N/A'), ') Fak: ', IFNULL(fakultas_baru, 'N/A'))
                    )
-                ) AS detail_kamar,
+                ) AS detail_perubahan,
                 keterangan_tambahan
             FROM AuditLogAktivitasPenghuni 
             ORDER BY waktu_aksi DESC 
             LIMIT %s
-        """
+        """ 
         return self._execute_query(query, (limit,), fetch_all=True) or []
+    
+    def delete_penghuni(self, nim):
+        """Menghapus data penghuni (Trigger akan mencatat log)."""
+        success = self._execute_query("DELETE FROM Penghuni WHERE nim = %s", (nim,), is_ddl_or_commit_managed_elsewhere=False)
+        if success and self.cursor.rowcount > 0:
+            messagebox.showinfo("Sukses", f"Data penghuni dengan NIM {nim} berhasil dihapus.")
+            return True
+        elif success and self.cursor.rowcount == 0:
+            messagebox.showwarning("Gagal", f"Penghuni dengan NIM {nim} tidak ditemukan.")
+            return False
+        return False
 
     def __del__(self):
         self._close()

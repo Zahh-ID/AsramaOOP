@@ -166,10 +166,30 @@ View adalah tabel virtual yang isinya didefinisikan oleh sebuah kueri SQL.
         ```sql
         CREATE OR REPLACE VIEW vw_DetailKamarPenghuni AS
         SELECT
-            K.nomor_kamar, A.nama_asrama, K.asrama_id, K.kapasitas,
+            K.nomor_kamar,
+            A.nama_asrama,
+            K.asrama_id,
+            K.kapasitas,
             (SELECT COUNT(*) FROM Penghuni P WHERE P.kamar_id_internal = K.kamar_id_internal) AS jumlah_penghuni_sekarang,
             K.kamar_id_internal
-        FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id;
+        FROM Kamar K
+        JOIN Asrama A ON K.asrama_id = A.asrama_id;
+
+            CREATE OR REPLACE VIEW vw_DaftarPenghuniLengkap AS
+            SELECT
+                P.nim,
+                P.nama_penghuni,
+                F.nama_fakultas AS fakultas, -- Mengambil nama fakultas dari tabel Fakultas
+                K.nomor_kamar,
+                A.nama_asrama,
+                K.asrama_id AS id_asrama_penghuni,
+                A.asrama_id AS id_asrama_kamar,
+                K.kamar_id_internal,
+                P.fakultas_id
+            FROM Penghuni P
+            JOIN Kamar K ON P.kamar_id_internal = K.kamar_id_internal
+            JOIN Asrama A ON K.asrama_id = A.asrama_id
+            LEFT JOIN Fakultas F ON P.fakultas_id = F.fakultas_id;
         ```
     * **Penggunaan di Python (`DatabaseService`)**: Metode `get_kapasitas_kamar` dan `get_jumlah_penghuni` menggunakan view ini untuk menyederhanakan pengambilan data ringkasan kamar.
 

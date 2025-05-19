@@ -59,7 +59,7 @@ class RiwayatAktivitasScreen(BaseScreen):
                     log_entry['aksi'],
                     log_entry['nim'],
                     log_entry['nama_terkait'],
-                    log_entry['detail_kamar'],
+                    log_entry['detail_perubahan'],
                     log_entry['keterangan_tambahan']
                 ))
         else:
