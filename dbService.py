@@ -7,10 +7,10 @@ class DatabaseService:
     Menggunakan View dan Stored Procedure.
     """
     def __init__(self, host, user, password, database_name):
-        self._host = host
-        self._user = user
-        self._password = password
-        self.database_name = database_name
+        self.__host = host
+        self.__user = user
+        self.__password = password
+        self.__database_name = database_name
         self.conn = None
         self.cursor = None
         self._connect()
@@ -24,10 +24,10 @@ class DatabaseService:
         """Membuat koneksi ke database MySQL."""
         try:
             self.conn = mysql.connector.connect(
-                host=self._host,
-                user=self._user,
-                password=self._password,
-                database=self.database_name
+                host=self.__host,
+                user=self.__user,
+                password=self.__password,
+                database=self.__database_name
             )
             self.cursor = self.conn.cursor(dictionary=True) # dictionary=True penting untuk akses hasil SP
             print("Berhasil terhubung ke database MySQL.")
