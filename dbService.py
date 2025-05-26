@@ -5,32 +5,33 @@ class DatabaseService:
     Mengenkapsulasi semua interaksi dengan database MySQL.
     Menyediakan metode untuk operasi CRUD pada entitas Asrama, Kamar, dan Penghuni.
     Menggunakan View dan Stored Procedure.
+    Otomatis mencoba membuat skema database jika belum ada.
     """
     def __init__(self, host, user, password, database_name):
-        self.__host = host
-        self.__user = user
-        self.__password = password
-        self.__database_name = database_name
+        self.host = host
+        self.user = user
+        self.password = password
+        self.database_name = database_name
         self.conn = None
         self.cursor = None
         self._connect()
         if self.conn:
-            # DDL utama (tabel Asrama, Kamar, Penghuni, View, Trigger, SP)
-            # sebaiknya sudah dijalankan di server MySQL melalui skrip SQL terpisah.
-            self._create_main_tables_if_not_exist() 
-            self._ensure_log_table_exists() 
+            self._initialize_database_schema() # Membuat semua objek DB
+            self._populate_initial_master_data_if_empty() # Mengisi data master awal jika perlu
 
     def _connect(self):
         """Membuat koneksi ke database MySQL."""
         try:
             self.conn = mysql.connector.connect(
-                host=self.__host,
-                user=self.__user,
-                password=self.__password,
-                database=self.__database_name
+                host=self.host,
+                user=self.user,
+                password=self.password
+                # Database akan dipilih setelah dibuat jika belum ada
             )
-            self.cursor = self.conn.cursor(dictionary=True) # dictionary=True penting untuk akses hasil SP
-            print("Berhasil terhubung ke database MySQL.")
+            self.cursor = self.conn.cursor(dictionary=True)
+            self.cursor.execute(f"CREATE DATABASE IF NOT EXISTS {self.database_name}")
+            self.cursor.execute(f"USE {self.database_name}")
+            print(f"Berhasil terhubung ke database MySQL dan menggunakan database '{self.database_name}'.")
         except mysql.connector.Error as err:
             print(f"Kesalahan koneksi database MySQL: {err}")
             messagebox.showerror("Kesalahan Database", f"Tidak dapat terhubung ke MySQL: {err}\n\nPastikan server MySQL berjalan dan detail koneksi benar.")
@@ -45,40 +46,36 @@ class DatabaseService:
             self.conn.close()
             print("Koneksi MySQL ditutup.")
 
-    def _execute_query(self, query, params=None, fetch_one=False, fetch_all=False, is_ddl_or_commit_managed_elsewhere=False):
-        """Helper untuk eksekusi kueri dengan error handling."""
-        if not self.conn or not self.conn.is_connected():
-            print("Kesalahan Database: Tidak ada koneksi ke database MySQL.")
-            return None if fetch_one or fetch_all else False
+    def _execute_single_ddl(self, ddl_statement):
+        """Mengeksekusi satu pernyataan DDL."""
         try:
-            self.cursor.execute(query, params)
-            # Commit hanya untuk DML jika tidak dikelola di tempat lain (misalnya oleh SP yang auto-commit atau DDL)
-            if not is_ddl_or_commit_managed_elsewhere and \
-               query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")):
-                self.conn.commit()
-            if fetch_one:
-                return self.cursor.fetchone()
-            if fetch_all:
-                return self.cursor.fetchall()
-            return True # Sukses untuk DDL atau operasi tanpa fetch yang berhasil
+            self.cursor.execute(ddl_statement)
+            self.conn.commit() # Commit setelah setiap DDL berhasil
         except mysql.connector.Error as err:
-            print(f"Kesalahan kueri MySQL: {err}\nKueri: {query}\nParams: {params}")
-            messagebox.showerror("Kesalahan Kueri Database", f"Terjadi kesalahan saat menjalankan kueri: {err}")
-            if not is_ddl_or_commit_managed_elsewhere: 
-                 try:
-                    if self.conn.in_transaction: 
-                        self.conn.rollback()
-                 except mysql.connector.Error as rb_err:
-                    print(f"Kesalahan saat rollback: {rb_err}")
-            return None if fetch_one or fetch_all else False
+            # Beberapa error DDL mungkin karena objek sudah ada dengan cara yang berbeda,
+            # atau masalah hak akses.
+            print(f"Peringatan saat menjalankan DDL: {err}\nDDL: {ddl_statement[:200]}...") # Print sebagian DDL untuk debug
+            # Tidak menampilkan messagebox untuk setiap DDL agar tidak terlalu banyak popup saat inisialisasi.
+            # Jika ada error kritis, koneksi awal biasanya sudah gagal.
+            # self.conn.rollback() # Tidak perlu rollback untuk DDL biasanya
 
-    def _create_main_tables_if_not_exist(self):
-        """Membuat tabel utama jika belum ada. View, SP, Trigger harus dibuat di server."""
-        if not self.conn or not self.conn.is_connected(): return
+    def _initialize_database_schema(self):
+        """Membuat semua tabel, view, trigger, dan stored procedure jika belum ada."""
+        if not self.conn or not self.conn.is_connected():
+            print("Inisialisasi skema dibatalkan: Tidak ada koneksi database.")
+            return
+
+        print("Memulai inisialisasi skema database...")
+
+        # 1. Buat Tabel Utama
         tables_ddl = [
             """CREATE TABLE IF NOT EXISTS Asrama (
                 asrama_id INTEGER PRIMARY KEY,
                 nama_asrama VARCHAR(255) NOT NULL UNIQUE
+            ) ENGINE=InnoDB;""",
+            """CREATE TABLE IF NOT EXISTS Fakultas (
+                fakultas_id INT AUTO_INCREMENT PRIMARY KEY,
+                nama_fakultas VARCHAR(255) NOT NULL UNIQUE
             ) ENGINE=InnoDB;""",
             """CREATE TABLE IF NOT EXISTS Kamar (
                 kamar_id_internal INTEGER PRIMARY KEY AUTO_INCREMENT,
@@ -89,146 +86,284 @@ class DatabaseService:
                 UNIQUE (nomor_kamar, asrama_id)
             ) ENGINE=InnoDB;""",
             """CREATE TABLE IF NOT EXISTS Penghuni (
-                nim VARCHAR(50) PRIMARY KEY,
-                nama_penghuni VARCHAR(255) NOT NULL,
-                fakultas VARCHAR(255),
-                kamar_id_internal INTEGER NOT NULL,
-                FOREIGN KEY (kamar_id_internal) REFERENCES Kamar(kamar_id_internal) ON DELETE CASCADE
+                nim VARCHAR(50) PRIMARY KEY, nama_penghuni VARCHAR(255) NOT NULL,
+                fakultas_id INT NULL DEFAULT NULL, kamar_id_internal INTEGER NOT NULL,
+                FOREIGN KEY (kamar_id_internal) REFERENCES Kamar(kamar_id_internal) ON DELETE CASCADE,
+                FOREIGN KEY (fakultas_id) REFERENCES Fakultas(fakultas_id) ON DELETE SET NULL ON UPDATE CASCADE
+            ) ENGINE=InnoDB;""",
+            """CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
+                log_id INT AUTO_INCREMENT PRIMARY KEY, nim VARCHAR(50),
+                nama_penghuni_lama VARCHAR(255) DEFAULT NULL, nama_penghuni_baru VARCHAR(255) DEFAULT NULL,
+                fakultas_lama VARCHAR(255) DEFAULT NULL, fakultas_baru VARCHAR(255) DEFAULT NULL,
+                kamar_id_internal_lama INT DEFAULT NULL, kamar_id_internal_baru INT DEFAULT NULL,
+                nomor_kamar_lama INT DEFAULT NULL, nama_asrama_lama VARCHAR(255) DEFAULT NULL,
+                nomor_kamar_baru INT DEFAULT NULL, nama_asrama_baru VARCHAR(255) DEFAULT NULL,
+                aksi VARCHAR(10) NOT NULL, waktu_aksi TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                keterangan_tambahan TEXT DEFAULT NULL
             ) ENGINE=InnoDB;"""
         ]
+        for ddl in tables_ddl:
+            self._execute_single_ddl(ddl)
+        print("Tabel utama telah diperiksa/dibuat.")
+
+        # 2. Buat Views
+        views_ddl = [
+            """CREATE OR REPLACE VIEW vw_DetailKamarPenghuni AS
+            SELECT
+                K.nomor_kamar, A.nama_asrama, K.asrama_id, K.kapasitas,
+                (SELECT COUNT(*) FROM Penghuni P WHERE P.kamar_id_internal = K.kamar_id_internal) AS jumlah_penghuni_sekarang,
+                K.kamar_id_internal
+            FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id;""",
+            """CREATE OR REPLACE VIEW vw_DaftarPenghuniLengkap AS
+            SELECT
+                P.nim, P.nama_penghuni, F.nama_fakultas AS fakultas, 
+                K.nomor_kamar, A.nama_asrama, K.asrama_id AS id_asrama_penghuni,
+                A.asrama_id AS id_asrama_kamar, K.kamar_id_internal, P.fakultas_id
+            FROM Penghuni P
+            JOIN Kamar K ON P.kamar_id_internal = K.kamar_id_internal
+            JOIN Asrama A ON K.asrama_id = A.asrama_id
+            LEFT JOIN Fakultas F ON P.fakultas_id = F.fakultas_id;"""
+        ]
+        for ddl in views_ddl:
+            self._execute_single_ddl(ddl)
+        print("View telah diperiksa/dibuat.")
+
+        # 3. Buat Triggers
+        # Pastikan DELIMITER tidak ada di string Python
+        trigger_insert_ddl = """
+        CREATE TRIGGER IF NOT EXISTS trg_LogInsertPenghuni
+        AFTER INSERT ON Penghuni
+        FOR EACH ROW
+        BEGIN
+            DECLARE v_nomor_kamar INT;
+            DECLARE v_nama_asrama VARCHAR(255);
+            DECLARE v_nama_fakultas VARCHAR(255) DEFAULT NULL;
+
+            SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar, v_nama_asrama
+            FROM Kamar K
+            JOIN Asrama A ON K.asrama_id = A.asrama_id
+            WHERE K.kamar_id_internal = NEW.kamar_id_internal;
+
+            IF NEW.fakultas_id IS NOT NULL THEN
+                SELECT nama_fakultas INTO v_nama_fakultas FROM Fakultas WHERE fakultas_id = NEW.fakultas_id;
+            END IF;
+
+            INSERT INTO AuditLogAktivitasPenghuni (
+                nim, nama_penghuni_baru, fakultas_baru,
+                kamar_id_internal_baru, nomor_kamar_baru, nama_asrama_baru,
+                aksi, keterangan_tambahan
+            )
+            VALUES (
+                NEW.nim, NEW.nama_penghuni, v_nama_fakultas,
+                NEW.kamar_id_internal, v_nomor_kamar, v_nama_asrama,
+                'INSERT', CONCAT('Penghuni baru ditambahkan ke kamar ', v_nomor_kamar, ' Asrama ', v_nama_asrama)
+            );
+        END""" # Hapus $$ dan DELIMITER ; dari sini
+        
+        trigger_update_ddl = """
+        CREATE TRIGGER IF NOT EXISTS trg_LogUpdatePenghuni
+        AFTER UPDATE ON Penghuni
+        FOR EACH ROW
+        BEGIN
+            DECLARE v_nomor_kamar_lama INT DEFAULT NULL; DECLARE v_nama_asrama_lama VARCHAR(255) DEFAULT NULL;
+            DECLARE v_nama_fakultas_lama VARCHAR(255) DEFAULT NULL; DECLARE v_nomor_kamar_baru INT DEFAULT NULL;
+            DECLARE v_nama_asrama_baru VARCHAR(255) DEFAULT NULL; DECLARE v_nama_fakultas_baru VARCHAR(255) DEFAULT NULL;
+            DECLARE v_keterangan TEXT DEFAULT 'Data penghuni diubah.';
+
+            IF OLD.kamar_id_internal IS NOT NULL THEN
+                SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar_lama, v_nama_asrama_lama
+                FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id WHERE K.kamar_id_internal = OLD.kamar_id_internal;
+            END IF;
+            IF OLD.fakultas_id IS NOT NULL THEN SELECT nama_fakultas INTO v_nama_fakultas_lama FROM Fakultas WHERE fakultas_id = OLD.fakultas_id; END IF;
+            IF NEW.kamar_id_internal IS NOT NULL THEN
+                SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar_baru, v_nama_asrama_baru
+                FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id WHERE K.kamar_id_internal = NEW.kamar_id_internal;
+            END IF;
+            IF NEW.fakultas_id IS NOT NULL THEN SELECT nama_fakultas INTO v_nama_fakultas_baru FROM Fakultas WHERE fakultas_id = NEW.fakultas_id; END IF;
+
+            IF OLD.kamar_id_internal != NEW.kamar_id_internal THEN
+                SET v_keterangan = CONCAT('Penghuni pindah dari kamar ', IFNULL(v_nomor_kamar_lama, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama_lama, 'N/A'), 
+                                        ' ke kamar ', IFNULL(v_nomor_kamar_baru, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama_baru, 'N/A'), '.');
+            ELSEIF OLD.fakultas_id != NEW.fakultas_id OR (OLD.fakultas_id IS NULL AND NEW.fakultas_id IS NOT NULL) OR (OLD.fakultas_id IS NOT NULL AND NEW.fakultas_id IS NULL) THEN
+                SET v_keterangan = CONCAT('Fakultas diubah dari ', IFNULL(v_nama_fakultas_lama, 'N/A'), ' menjadi ', IFNULL(v_nama_fakultas_baru, 'N/A'), '.');
+            ELSEIF OLD.nama_penghuni != NEW.nama_penghuni THEN SET v_keterangan = CONCAT('Nama diubah dari ', OLD.nama_penghuni, ' menjadi ', NEW.nama_penghuni, '.');
+            END IF;
+            INSERT INTO AuditLogAktivitasPenghuni (nim, nama_penghuni_lama, nama_penghuni_baru, fakultas_lama, fakultas_baru, kamar_id_internal_lama, kamar_id_internal_baru, nomor_kamar_lama, nama_asrama_lama, nomor_kamar_baru, nama_asrama_baru, aksi, keterangan_tambahan)
+            VALUES (OLD.nim, OLD.nama_penghuni, NEW.nama_penghuni, v_nama_fakultas_lama, v_nama_fakultas_baru, OLD.kamar_id_internal, NEW.kamar_id_internal, v_nomor_kamar_lama, v_nama_asrama_lama, v_nomor_kamar_baru, v_nama_asrama_baru, 'UPDATE', v_keterangan);
+        END"""
+        
+        trigger_delete_ddl = """
+        CREATE TRIGGER IF NOT EXISTS trg_LogDeletePenghuni
+        AFTER DELETE ON Penghuni
+        FOR EACH ROW
+        BEGIN
+            DECLARE v_nomor_kamar INT DEFAULT NULL; DECLARE v_nama_asrama VARCHAR(255) DEFAULT NULL; DECLARE v_nama_fakultas VARCHAR(255) DEFAULT NULL;
+            IF OLD.kamar_id_internal IS NOT NULL THEN
+                SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar, v_nama_asrama
+                FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id WHERE K.kamar_id_internal = OLD.kamar_id_internal;
+            END IF;
+            IF OLD.fakultas_id IS NOT NULL THEN SELECT nama_fakultas INTO v_nama_fakultas FROM Fakultas WHERE fakultas_id = OLD.fakultas_id; END IF;
+            INSERT INTO AuditLogAktivitasPenghuni (nim, nama_penghuni_lama, fakultas_lama, kamar_id_internal_lama, nomor_kamar_lama, nama_asrama_lama, aksi, keterangan_tambahan)
+            VALUES (OLD.nim, OLD.nama_penghuni, v_nama_fakultas, OLD.kamar_id_internal, v_nomor_kamar, v_nama_asrama, 'DELETE', CONCAT('Penghuni dihapus dari kamar ', IFNULL(v_nomor_kamar, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama, 'N/A')));
+        END"""
+        
+        # Hapus trigger lama sebelum membuat yang baru untuk menghindari error jika sudah ada
+        self._execute_single_ddl("DROP TRIGGER IF EXISTS trg_LogInsertPenghuni")
+        self._execute_single_ddl(trigger_insert_ddl)
+        self._execute_single_ddl("DROP TRIGGER IF EXISTS trg_LogUpdatePenghuni")
+        self._execute_single_ddl(trigger_update_ddl)
+        self._execute_single_ddl("DROP TRIGGER IF EXISTS trg_LogDeletePenghuni")
+        self._execute_single_ddl(trigger_delete_ddl)
+        print("Trigger telah diperiksa/dibuat.")
+
+        # 4. Buat Stored Procedures
+        sp_tambah_penghuni_ddl = """
+        CREATE PROCEDURE IF NOT EXISTS sp_TambahPenghuni (
+            IN p_nim VARCHAR(50), IN p_nama_penghuni VARCHAR(255), IN p_nama_fakultas_input VARCHAR(255), 
+            IN p_nomor_kamar INT, IN p_asrama_id INT, OUT p_status_code INT, OUT p_status_message VARCHAR(255)
+        )
+        BEGIN
+            DECLARE v_kamar_id_internal INT; DECLARE v_kapasitas_kamar INT; DECLARE v_jumlah_penghuni_saat_ini INT;
+            DECLARE v_fakultas_id INT DEFAULT NULL;
+            SET p_status_code = 4; SET p_status_message = 'Terjadi kesalahan tidak diketahui.';
+            IF p_nim IS NULL OR p_nim = '' OR NOT (p_nim REGEXP '^[0-9]+$') THEN
+                SET p_status_code = 5; SET p_status_message = 'Gagal: NIM tidak valid (harus berupa angka dan tidak boleh kosong).';
+            ELSE
+                IF p_nama_fakultas_input IS NOT NULL AND p_nama_fakultas_input != '' THEN
+                    SELECT fakultas_id INTO v_fakultas_id FROM Fakultas WHERE nama_fakultas = p_nama_fakultas_input;
+                    IF v_fakultas_id IS NULL THEN INSERT INTO Fakultas (nama_fakultas) VALUES (p_nama_fakultas_input); SET v_fakultas_id = LAST_INSERT_ID(); END IF;
+                END IF;
+                SELECT kamar_id_internal INTO v_kamar_id_internal FROM Kamar WHERE nomor_kamar = p_nomor_kamar AND asrama_id = p_asrama_id;
+                IF v_kamar_id_internal IS NULL THEN SET p_status_code = 1; SET p_status_message = 'Gagal: Kamar tidak ditemukan.';
+                ELSE
+                    SELECT kapasitas INTO v_kapasitas_kamar FROM Kamar WHERE kamar_id_internal = v_kamar_id_internal;
+                    SELECT COUNT(*) INTO v_jumlah_penghuni_saat_ini FROM Penghuni WHERE kamar_id_internal = v_kamar_id_internal;
+                    IF v_jumlah_penghuni_saat_ini >= v_kapasitas_kamar THEN SET p_status_code = 2; SET p_status_message = 'Gagal: Kamar sudah penuh.';
+                    ELSE
+                        IF EXISTS (SELECT 1 FROM Penghuni WHERE nim = p_nim) THEN SET p_status_code = 3; SET p_status_message = CONCAT('Gagal: NIM ', p_nim, ' sudah terdaftar.');
+                        ELSE INSERT INTO Penghuni (nim, nama_penghuni, fakultas_id, kamar_id_internal) VALUES (p_nim, p_nama_penghuni, v_fakultas_id, v_kamar_id_internal); SET p_status_code = 0; SET p_status_message = 'Sukses: Penghuni berhasil ditambahkan.';
+                        END IF;
+                    END IF;
+                END IF;
+            END IF;
+        END""" # Tanpa SELECT OUT di sini, akan diambil via argumen list
+
+        sp_pindah_kamar_ddl = """
+        CREATE PROCEDURE IF NOT EXISTS sp_PindahKamarPenghuni (
+            IN p_nim VARCHAR(50), IN p_nomor_kamar_baru INT, IN p_asrama_id_baru INT,
+            OUT p_status_code INT, OUT p_status_message VARCHAR(255)
+        )
+        BEGIN
+            DECLARE v_k_id_lama INT; DECLARE v_k_id_baru INT; DECLARE v_kap_k_baru INT; DECLARE v_jml_p_k_baru INT;
+            DECLARE v_p_exists INT DEFAULT 0;
+            SET p_status_code = 4; SET p_status_message = 'Terjadi kesalahan tidak diketahui.';
+            IF p_nim IS NULL OR p_nim = '' OR NOT (p_nim REGEXP '^[0-9]+$') THEN SET p_status_code = 5; SET p_status_message = 'Gagal: NIM tidak valid (harus berupa angka dan tidak boleh kosong).';
+            ELSE
+                SELECT COUNT(*), kamar_id_internal INTO v_p_exists, v_k_id_lama FROM Penghuni WHERE nim = p_nim;
+                IF v_p_exists = 0 THEN SET p_status_code = 1; SET p_status_message = 'Gagal: Penghuni dengan NIM tersebut tidak ditemukan.';
+                ELSE
+                    SELECT kamar_id_internal INTO v_k_id_baru FROM Kamar WHERE nomor_kamar = p_nomor_kamar_baru AND asrama_id = p_asrama_id_baru;
+                    IF v_k_id_baru IS NULL THEN SET p_status_code = 2; SET p_status_message = 'Gagal: Kamar tujuan tidak ditemukan.';
+                    ELSE
+                        IF v_k_id_lama = v_k_id_baru THEN SET p_status_code = 0; SET p_status_message = 'Info: Penghuni sudah berada di kamar tujuan.';
+                        ELSE
+                            SELECT kapasitas INTO v_kap_k_baru FROM Kamar WHERE kamar_id_internal = v_k_id_baru;
+                            SELECT COUNT(*) INTO v_jml_p_k_baru FROM Penghuni WHERE kamar_id_internal = v_k_id_baru;
+                            IF v_jml_p_k_baru >= v_kap_k_baru THEN SET p_status_code = 3; SET p_status_message = 'Gagal: Kamar tujuan sudah penuh.';
+                            ELSE UPDATE Penghuni SET kamar_id_internal = v_k_id_baru WHERE nim = p_nim; SET p_status_code = 0; SET p_status_message = 'Sukses: Penghuni berhasil dipindahkan.';
+                            END IF;
+                        END IF;
+                    END IF;
+                END IF;
+            END IF;
+        END""" # Tanpa SELECT OUT di sini
+        
+        self._execute_single_ddl("DROP PROCEDURE IF EXISTS sp_TambahPenghuni")
+        self._execute_single_ddl(sp_tambah_penghuni_ddl)
+        self._execute_single_ddl("DROP PROCEDURE IF EXISTS sp_PindahKamarPenghuni")
+        self._execute_single_ddl(sp_pindah_kamar_ddl)
+        print("Stored Procedures telah diperiksa/dibuat.")
+
+        print("Inisialisasi skema database selesai.")
+
+    def _populate_initial_master_data_if_empty(self):
+        """Mengisi data master awal untuk Asrama dan Fakultas jika tabel kosong."""
+        if not self.conn or not self.conn.is_connected(): return
+
         try:
-            for ddl in tables_ddl:
-                self._execute_query(ddl, is_ddl_or_commit_managed_elsewhere=True)
-            self.conn.commit() 
-            print("Tabel utama Asrama, Kamar, Penghuni telah diperiksa/dibuat.")
+            # Populate Asrama
+            self.cursor.execute("SELECT COUNT(*) as count FROM Asrama")
+            if (self.cursor.fetchone() or {}).get('count', 0) == 0:
+                asramas_data = [
+                    (1, "Aster"), (2, "Soka"), (3, "Tulip"), (4, "Edelweiss"),
+                    (5, "Lily"), (6, "Dahlia"), (7, "Melati"), (8, "Anyelir")
+                ]
+                for asrama_id_val, nama in asramas_data:
+                    self._execute_query("INSERT INTO Asrama (asrama_id, nama_asrama) VALUES (%s, %s)", (asrama_id_val, nama), is_ddl_or_commit_managed_elsewhere=True)
+                self.conn.commit()
+                print("Data awal Asrama dimasukkan.")
+
+            # Populate Fakultas
+            self.cursor.execute("SELECT COUNT(*) as count FROM Fakultas")
+            if (self.cursor.fetchone() or {}).get('count', 0) == 0:
+                fakultas_data = [
+                    ('Teknik'), ('Ekonomi dan Bisnis'), ('Ilmu Sosial dan Ilmu Politik'),
+                    ('Kedokteran'), ('Ilmu Budaya'), ('MIPA'), ('Ilmu Komputer'),
+                    ('Ilmu Keolahragaan'), ('Vokasi'), ('Ilmu Pendidikan')
+                ]
+                for nama_fak in fakultas_data:
+                    self._execute_query("INSERT INTO Fakultas (nama_fakultas) VALUES (%s)", (nama_fak,), is_ddl_or_commit_managed_elsewhere=True)
+                self.conn.commit()
+                print("Data awal Fakultas dimasukkan.")
+            
+            # Populate Kamar (Contoh, bisa diperluas)
+            self.cursor.execute("SELECT COUNT(*) as count FROM Kamar")
+            if (self.cursor.fetchone() or {}).get('count', 0) == 0:
+                # Kamar untuk Asrama Aster (asrama_id = 1)
+                kamar_data_aster = [
+                    (101, 1, 2), (102, 1, 2), (103, 1, 3), 
+                    (201, 1, 2), (202, 1, 2), (203, 1, 2),
+                    (301, 1, 2), (302, 1, 2), (303, 1, 2)
+                ]
+                for nk, aid, kap in kamar_data_aster:
+                     self._execute_query("INSERT INTO Kamar (nomor_kamar, asrama_id, kapasitas) VALUES (%s, %s, %s)", (nk, aid, kap), is_ddl_or_commit_managed_elsewhere=True)
+                self.conn.commit()
+                print("Data awal Kamar untuk Aster dimasukkan.")
+
+
         except mysql.connector.Error as e:
-            print(f"Kesalahan pembuatan tabel utama MySQL: {e}")
-            messagebox.showerror("Kesalahan Database", f"Gagal membuat tabel utama di MySQL: {e}")
+            print(f"Kesalahan saat mengisi data master awal: {e}")
+            # self.conn.rollback() # Rollback jika ada error selama populasi
 
+    # ... (sisa metode DatabaseService seperti add_penghuni, pindah_kamar_penghuni, dll. tetap sama) ...
+    # Metode add_penghuni dan pindah_kamar_penghuni akan menggunakan
+    # pendekatan modifikasi list argumen untuk OUT params.
 
-    def _ensure_log_table_exists(self):
-        """Memastikan tabel log aktivitas ada."""
-        ddl_log_table = """
-        CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
-            log_id INT AUTO_INCREMENT PRIMARY KEY, nim VARCHAR(50),
-            nama_penghuni_lama VARCHAR(255) DEFAULT NULL, nama_penghuni_baru VARCHAR(255) DEFAULT NULL,
-            fakultas_lama VARCHAR(255) DEFAULT NULL, fakultas_baru VARCHAR(255) DEFAULT NULL,
-            kamar_id_internal_lama INT DEFAULT NULL, kamar_id_internal_baru INT DEFAULT NULL,
-            nomor_kamar_lama INT DEFAULT NULL, nama_asrama_lama VARCHAR(255) DEFAULT NULL,
-            nomor_kamar_baru INT DEFAULT NULL, nama_asrama_baru VARCHAR(255) DEFAULT NULL,
-            aksi VARCHAR(10) NOT NULL, waktu_aksi TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            user_aksi VARCHAR(100) DEFAULT NULL, keterangan_tambahan TEXT DEFAULT NULL
-        ) ENGINE=InnoDB;
-        """
-        if self._execute_query(ddl_log_table, is_ddl_or_commit_managed_elsewhere=True):
-            self.conn.commit() 
-            print("Tabel AuditLogAktivitasPenghuni telah diperiksa/dibuat.")
-
-    def _update_data_action(self):
-        if not self.selected_mahasiswa_nim_original:
-            messagebox.showwarning("Peringatan", "Pilih mahasiswa yang akan diubah datanya.")
-            return
-        nim_baru = self.nim_baru_entry.get().strip()
-        nama_baru = self.nama_baru_entry.get().strip()
-        fakultas_baru = self.fakultas_baru_pilihan.get()
-        current_nama_entry_val = self.nama_baru_entry.get()
-        if not nama_baru and any(char.isalnum() for char in current_nama_entry_val):
-             messagebox.showwarning("Input Tidak Valid", "Nama baru tidak boleh dikosongkan jika field diisi.")
-             return
-        current_nim_entry_val = self.nim_baru_entry.get()
-        if not nim_baru and any(char.isalnum() for char in current_nim_entry_val):
-             messagebox.showwarning("Input Tidak Valid", "NIM baru tidak boleh dikosongkan jika field diisi.")
-             return
-        if self.db_service.update_penghuni(self.selected_mahasiswa_nim_original, nim_baru, nama_baru, fakultas_baru):
-            self.screen_manager.show_kamar_detail(self.kamar_id)
-
-    # --- Metode CRUD untuk Asrama ---
-    def get_all_asrama(self):
-        """Mengambil semua data asrama."""
-        return self._execute_query("SELECT asrama_id, nama_asrama FROM Asrama ORDER BY asrama_id", fetch_all=True) or []
-
-    # --- Metode CRUD untuk Kamar ---
-    def get_kamar_id_internal(self, nomor_kamar_val, asrama_id_val):
-        """Mendapatkan ID internal kamar."""
-        result = self._execute_query("SELECT kamar_id_internal FROM Kamar WHERE nomor_kamar = %s AND asrama_id = %s",
-                                     (nomor_kamar_val, asrama_id_val), fetch_one=True)
-        return result['kamar_id_internal'] if result else None
-
-    def get_kapasitas_kamar(self, nomor_kamar_val, asrama_id_val):
-        """Mengambil kapasitas kamar menggunakan View."""
-        result = self._execute_query("SELECT kapasitas FROM vw_DetailKamarPenghuni WHERE nomor_kamar = %s AND asrama_id = %s",
-                                     (nomor_kamar_val, asrama_id_val), fetch_one=True)
-        return result['kapasitas'] if result else 0
-
-    def get_jumlah_penghuni(self, nomor_kamar_val, asrama_id_val):
-        """Mengambil jumlah penghuni dalam satu kamar menggunakan View."""
-        result = self._execute_query("SELECT jumlah_penghuni_sekarang FROM vw_DetailKamarPenghuni WHERE nomor_kamar = %s AND asrama_id = %s",
-                                     (nomor_kamar_val, asrama_id_val), fetch_one=True)
-        return result['jumlah_penghuni_sekarang'] if result else 0
-    
-    def get_all_kamar_in_asrama(self, asrama_id_val):
-        """Mengambil semua nomor kamar dalam satu asrama."""
-        query = "SELECT nomor_kamar FROM Kamar WHERE asrama_id = %s ORDER BY nomor_kamar ASC"
-        return self._execute_query(query, (asrama_id_val,), fetch_all=True) or []
-    
-    def get_fakultas_id_by_name(self, nama_fakultas):
-        """Mendapatkan fakultas_id berdasarkan nama_fakultas."""
-        if not nama_fakultas: return None
-        query = "SELECT fakultas_id FROM Fakultas WHERE nama_fakultas = %s"
-        result = self._execute_query(query, (nama_fakultas,), fetch_one=True)
-        return result['fakultas_id'] if result else None
-
-
-    # --- Metode CRUD untuk Penghuni ---
-    def get_penghuni_in_kamar(self, nomor_kamar_val, asrama_id_val):
-        """Mengambil data penghuni dalam satu kamar menggunakan View."""
-        kamar_internal_id = self.get_kamar_id_internal(nomor_kamar_val, asrama_id_val)
-        if not kamar_internal_id:
-            return ["Info: Kamar tidak ditemukan"], []
-
-        query = """
-            SELECT nim, nama_penghuni, fakultas, nomor_kamar, nama_asrama
-            FROM vw_DaftarPenghuniLengkap
-            WHERE kamar_id_internal = %s
-            ORDER BY nama_penghuni ASC
-        """
-        data_lengkap_rows = self._execute_query(query, (kamar_internal_id,), fetch_all=True)
-
-        if not data_lengkap_rows:
-            return ["Info: Kamar ini kosong"], []
-
-        opsi_display = [f"{row['nim']} - {row['nama_penghuni']}" for row in data_lengkap_rows]
-        data_lengkap_list_of_dicts = [dict(row) for row in data_lengkap_rows]
-        return opsi_display, data_lengkap_list_of_dicts
-
-    def add_penghuni(self, nim, nama, fakultas, nomor_kamar_val, asrama_id_val):
+    def add_penghuni(self, nim, nama, nama_fakultas, nomor_kamar_val, asrama_id_val):
         """Menambahkan penghuni baru menggunakan Stored Procedure sp_TambahPenghuni."""
         if not self.conn or not self.conn.is_connected():
             messagebox.showerror("Kesalahan Database", "Tidak ada koneksi ke database MySQL.")
             return False
         try:
-            args_for_callproc = [nim, nama, fakultas, nomor_kamar_val, asrama_id_val, None, None] 
+            proc_args_list = [nim, nama, nama_fakultas, nomor_kamar_val, asrama_id_val, 0, ""] 
             
-            self.cursor.callproc('sp_TambahPenghuni', args_for_callproc) 
+            # Panggil SP. Konektor akan mencoba mengisi nilai OUT ke proc_args_list
+            self.cursor.callproc('sp_TambahPenghuni', proc_args_list)
             
-            out_params_dict = None
-            for result in self.cursor.stored_results():
-                out_params_dict = result.fetchone() 
-                break 
+            # Ambil nilai OUT dari list yang sama
+            status_code = proc_args_list[5] 
+            status_message = proc_args_list[6]
 
-            if out_params_dict:
-                status_code = out_params_dict.get('p_status_code') 
-                status_message = out_params_dict.get('p_status_message')
-
+            if status_code is not None: 
                 if status_code == 0: 
                     messagebox.showinfo("Sukses", status_message)
                     self.conn.commit() 
                     return True
                 else:
-                    messagebox.showerror("Gagal Menambah Penghuni", status_message if status_message else "Status tidak diketahui dari SP.")
+                    messagebox.showerror("Gagal Menambah Penghuni", status_message)
                     return False
             else:
-                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Tambah Penghuni.")
+                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Tambah Penghuni (OUT params tidak terisi dengan benar).")
                 return False
         except mysql.connector.Error as err:
             messagebox.showerror("Kesalahan Database SP", f"Gagal memanggil sp_TambahPenghuni: {err}")
@@ -243,19 +378,13 @@ class DatabaseService:
             messagebox.showerror("Kesalahan Database", "Tidak ada koneksi ke database MySQL.")
             return False, "Tidak ada koneksi database."
         try:
-            # SP sp_PindahKamarPenghuni expects 5 parameters: 3 IN, 2 OUT.
-            args_for_callproc = [nim, nomor_kamar_baru, asrama_id_baru, None, None]
-            self.cursor.callproc('sp_PindahKamarPenghuni', args_for_callproc)
+            proc_args_list = [nim, nomor_kamar_baru, asrama_id_baru, 0, ""] 
 
-            out_params_dict = None
-            for result in self.cursor.stored_results():
-                out_params_dict = result.fetchone()
-                break
-            
-            if out_params_dict:
-                status_code = out_params_dict.get('p_status_code')
-                status_message = out_params_dict.get('p_status_message')
+            self.cursor.callproc('sp_PindahKamarPenghuni', proc_args_list)
+            status_code = proc_args_list[3]
+            status_message = proc_args_list[4]
 
+            if status_code is not None: 
                 if status_code == 0: 
                     if status_message and "Info:" in status_message: 
                         messagebox.showinfo("Info Pindah Kamar", status_message)
@@ -264,10 +393,10 @@ class DatabaseService:
                     self.conn.commit()
                     return True, status_message
                 else:
-                    messagebox.showerror("Gagal Pindah Kamar", status_message if status_message else "Status tidak diketahui dari SP.")
+                    messagebox.showerror("Gagal Pindah Kamar", status_message)
                     return False, status_message
             else:
-                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Pindah Kamar.")
+                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Pindah Kamar (OUT params tidak terisi dengan benar).")
                 return False, "Gagal mengambil status SP."
         except mysql.connector.Error as err:
             messagebox.showerror("Kesalahan Database SP", f"Gagal memanggil sp_PindahKamarPenghuni: {err}")
@@ -275,44 +404,39 @@ class DatabaseService:
                 if self.conn.in_transaction: self.conn.rollback()
             except: pass
             return False, str(err)
-    
 
 
     def update_penghuni(self, nim_original, nim_baru, nama_baru, nama_fakultas_baru):
         """Memperbarui data penghuni (Trigger akan mencatat log)."""
         if not self.conn or not self.conn.is_connected():
             messagebox.showerror("Kesalahan Database", "Tidak ada koneksi ke database MySQL.")
-            return False
+            return "ERROR_CONNECTION" 
 
-        # 1. Periksa apakah NIM original ada di database
         check_exists_query = "SELECT 1 FROM Penghuni WHERE nim = %s"
         self.cursor.execute(check_exists_query, (nim_original,))
         if not self.cursor.fetchone():
             messagebox.showwarning("Perhatian", f"Tidak ada data penghuni yang cocok dengan NIM original: {nim_original}.")
-            return False
+            return "ERROR_NIM_ORIGINAL_NOT_FOUND"
 
         updates = []
         params = []
         
-        # Validasi dan persiapan update NIM baru
         if nim_baru and nim_original != nim_baru:
-            if not nim_baru.isdigit(): # Validasi NIM baru harus angka
+            if not nim_baru.isdigit(): 
                 messagebox.showerror("Kesalahan Input", "NIM baru harus berupa angka.")
-                return False
+                return "ERROR_INVALID_NIM_FORMAT"
             check_nim_conflict_query = "SELECT 1 FROM Penghuni WHERE nim = %s"
             self.cursor.execute(check_nim_conflict_query, (nim_baru,))
             if self.cursor.fetchone():
                 messagebox.showerror("Kesalahan", f"NIM baru '{nim_baru}' sudah digunakan oleh penghuni lain.")
-                return False
+                return "ERROR_NIM_CONFLICT"
             updates.append("nim = %s")
             params.append(nim_baru)
         
-        # Persiapan update nama
         if nama_baru: 
             updates.append("nama_penghuni = %s")
             params.append(nama_baru)
 
-        # Persiapan update fakultas
         fakultas_id_to_update = None 
         if nama_fakultas_baru is not None: 
             if nama_fakultas_baru == "": 
@@ -330,16 +454,16 @@ class DatabaseService:
                             print(f"Fakultas baru '{nama_fakultas_baru}' ditambahkan dengan ID: {fakultas_id_to_update}")
                         else: 
                             messagebox.showerror("Kesalahan", f"Gagal menambahkan fakultas baru '{nama_fakultas_baru}'.")
-                            return False
+                            return "ERROR_ADD_FAKULTAS"
                     except mysql.connector.Error as e_fak:
                         messagebox.showerror("Kesalahan Database", f"Gagal menambahkan fakultas baru: {e_fak}")
-                        return False
+                        return "ERROR_ADD_FAKULTAS_DB"
                 updates.append("fakultas_id = %s")
                 params.append(fakultas_id_to_update)
         
         if not updates:
-            messagebox.showinfo("Info", "Tidak ada data yang diubah (nilai baru sama dengan nilai lama atau tidak ada input perubahan).")
-            return True 
+            messagebox.showinfo("Info", "Tidak ada data yang akan diubah (semua input kosong atau sama dengan data lama).")
+            return "SUCCESS_NO_CHANGE" 
 
         params_for_update = list(params) 
         params_for_update.append(nim_original)
@@ -350,21 +474,28 @@ class DatabaseService:
         if success:
             if self.cursor.rowcount > 0:
                 messagebox.showinfo("Sukses", "Data penghuni berhasil diubah.")
-                return True
+                return "SUCCESS_DATA_CHANGED" 
             else:
                 messagebox.showwarning("Perhatian", "Tidak ada perubahan aktual pada data (data baru mungkin sama dengan data lama).")
-                return False # Tetap dianggap berhasil karena operasi valid
+                return "SUCCESS_NO_ACTUAL_CHANGE" 
         else:
+            return "ERROR_UPDATE_FAILED"
+
+
+    def delete_penghuni(self, nim):
+        success = self._execute_query("DELETE FROM Penghuni WHERE nim = %s", (nim,), is_ddl_or_commit_managed_elsewhere=False)
+        if success and self.cursor.rowcount > 0:
+            messagebox.showinfo("Sukses", f"Data penghuni dengan NIM {nim} berhasil dihapus.")
+            return True
+        elif success and self.cursor.rowcount == 0:
+            messagebox.showwarning("Gagal", f"Penghuni dengan NIM {nim} tidak ditemukan.")
             return False
+        return False
 
     def get_audit_log_penghuni(self, limit=100): 
-        """Mengambil data log aktivitas penghuni dengan batasan jumlah."""
         query = """
             SELECT 
-                log_id, 
-                DATE_FORMAT(waktu_aksi, '%Y-%m-%d %H:%i:%S') AS waktu_aksi_formatted, 
-                aksi, 
-                nim, 
+                log_id, DATE_FORMAT(waktu_aksi, '%Y-%m-%d %H:%i:%S') AS waktu_aksi_formatted, aksi, nim, 
                 IFNULL(nama_penghuni_baru, nama_penghuni_lama) AS nama_terkait,
                 IF(aksi = 'INSERT', 
                    CONCAT('Ke: ', IFNULL(nomor_kamar_baru, 'N/A'), ' (', IFNULL(nama_asrama_baru, 'N/A'), ') - Fak: ', IFNULL(fakultas_baru, 'N/A')),
@@ -380,17 +511,6 @@ class DatabaseService:
             LIMIT %s
         """ 
         return self._execute_query(query, (limit,), fetch_all=True) or []
-    
-    def delete_penghuni(self, nim):
-        """Menghapus data penghuni (Trigger akan mencatat log)."""
-        success = self._execute_query("DELETE FROM Penghuni WHERE nim = %s", (nim,), is_ddl_or_commit_managed_elsewhere=False)
-        if success and self.cursor.rowcount > 0:
-            messagebox.showinfo("Sukses", f"Data penghuni dengan NIM {nim} berhasil dihapus.")
-            return True
-        elif success and self.cursor.rowcount == 0:
-            messagebox.showwarning("Gagal", f"Penghuni dengan NIM {nim} tidak ditemukan.")
-            return False
-        return False
 
     def __del__(self):
         self._close()
