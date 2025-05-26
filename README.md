@@ -157,12 +157,20 @@ Polimorfisme ("banyak bentuk") adalah kemampuan objek dari kelas yang berbeda un
 
 
     ```
-Aplikasi ini memanfaatkan beberapa fitur database MySQL untuk meningkatkan fungsionalitas dan integritas data:
+## Implementasi Rinci Fitur Database Lanjutan
 
-### 1. View
-View adalah tabel virtual yang isinya didefinisikan oleh sebuah kueri SQL.
-* **`vw_DetailKamarPenghuni`**:
-    * **Definisi SQL**: Menggabungkan informasi dari tabel `Kamar` dan `Asrama`, serta menghitung jumlah penghuni saat ini per kamar menggunakan subquery.
+Aplikasi manajemen sistem asrama ini secara ekstensif memanfaatkan fitur-fitur database MySQL seperti View, Stored Procedure, dan Trigger untuk meningkatkan fungsionalitas, integritas data, efisiensi, dan kemudahan pengelolaan. Berikut adalah penjelasan rinci mengenai implementasi masing-masing fitur:
+
+### 1. View (Tampilan)
+
+**Konsep Dasar:**
+View adalah objek database yang merupakan tabel virtual. Isinya tidak disimpan secara fisik melainkan didefinisikan oleh sebuah kueri SQL yang dieksekusi setiap kali view tersebut diakses. View berfungsi sebagai lapisan abstraksi, menyederhanakan kueri yang kompleks, dan dapat digunakan untuk tujuan keamanan dengan membatasi akses ke data tertentu.
+
+**Implementasi dalam Aplikasi:**
+
+* **`vw_DetailKamarPenghuni`**
+    * **Tujuan**: Menyediakan ringkasan informasi yang sering dibutuhkan untuk setiap kamar, yaitu nomor kamar, nama asrama terkait, ID asrama, kapasitas total kamar, dan jumlah penghuni yang saat ini menempati kamar tersebut, beserta ID internal kamar. Ini menghilangkan kebutuhan untuk menulis ulang kueri join dan subquery `COUNT(*)` setiap kali informasi ini diperlukan di aplikasi.
+    * **Definisi SQL**:
         ```sql
         CREATE OR REPLACE VIEW vw_DetailKamarPenghuni AS
         SELECT
@@ -174,329 +182,123 @@ View adalah tabel virtual yang isinya didefinisikan oleh sebuah kueri SQL.
             K.kamar_id_internal
         FROM Kamar K
         JOIN Asrama A ON K.asrama_id = A.asrama_id;
-
-            CREATE OR REPLACE VIEW vw_DaftarPenghuniLengkap AS
-            SELECT
-                P.nim,
-                P.nama_penghuni,
-                F.nama_fakultas AS fakultas,
-                K.nomor_kamar,
-                A.nama_asrama,
-                K.asrama_id AS id_asrama_penghuni,
-                A.asrama_id AS id_asrama_kamar,
-                K.kamar_id_internal,
-                P.fakultas_id
-            FROM Penghuni P
-            JOIN Kamar K ON P.kamar_id_internal = K.kamar_id_internal
-            JOIN Asrama A ON K.asrama_id = A.asrama_id
-            LEFT JOIN Fakultas F ON P.fakultas_id = F.fakultas_id;
         ```
-    * **Penggunaan di Python (`DatabaseService`)**: Metode `get_kapasitas_kamar` dan `get_jumlah_penghuni` menggunakan view ini untuk menyederhanakan pengambilan data ringkasan kamar.
+    * **Penggunaan di Python (`DatabaseService`)**:
+        * Metode `get_kapasitas_kamar(nomor_kamar_val, asrama_id_val)`: Mengambil kolom `kapasitas` dari view ini berdasarkan `nomor_kamar` dan `asrama_id`.
+        * Metode `get_jumlah_penghuni(nomor_kamar_val, asrama_id_val)`: Mengambil kolom `jumlah_penghuni_sekarang` dari view ini.
+        * **Manfaat Langsung**: Kode Python menjadi lebih bersih karena tidak perlu lagi melakukan perhitungan `COUNT(*)` secara manual atau join yang kompleks di sisi aplikasi. Cukup `SELECT` dari view.
 
-* **`vw_DaftarPenghuniLengkap`**:
-    * **Definisi SQL**: Menggabungkan data dari tabel `Penghuni`, `Kamar`, dan `Asrama` untuk menampilkan detail lengkap setiap penghuni termasuk nama kamar dan asramanya.
+* **`vw_DaftarPenghuniLengkap`**
+    * **Tujuan**: Menyajikan daftar penghuni yang komprehensif dengan menggabungkan informasi dari tabel `Penghuni`, `Kamar` (untuk nomor kamar), `Asrama` (untuk nama asrama), dan `Fakultas` (untuk nama fakultas). View ini sangat penting untuk menampilkan daftar penghuni di `KamarDetailScreen` dan untuk mengisi dropdown pilihan mahasiswa di layar ubah, hapus, atau pindah kamar.
+    * **Definisi SQL**:
         ```sql
         CREATE OR REPLACE VIEW vw_DaftarPenghuniLengkap AS
-            SELECT
-                P.nim, P.nama_penghuni, P.fakultas, K.nomor_kamar, A.nama_asrama,
-                K.asrama_id AS id_asrama_penghuni, A.asrama_id AS id_asrama_kamar, K.kamar_id_internal
-            FROM Penghuni P
-            JOIN Kamar K ON P.kamar_id_internal = K.kamar_id_internal
-            JOIN Asrama A ON K.asrama_id = A.asrama_id;
-
-        ```
-    * **Penggunaan di Python (`DatabaseService`)**: Metode `get_penghuni_in_kamar` menggunakan view ini untuk mengisi tabel daftar penghuni di `KamarDetailScreen` dan dropdown di layar lain.
-
-### 2. Stored Procedure
-Stored Procedure adalah sekumpulan pernyataan SQL yang disimpan di server database dan dapat dipanggil berdasarkan namanya.
-* **`sp_TambahPenghuni`**:
-    * **Definisi SQL**: Menerima parameter IN (nim, nama, fakultas, nomor kamar, id asrama) dan parameter OUT (status_code, status_message). Melakukan validasi (kamar ditemukan, kapasitas tidak penuh, NIM tidak duplikat) sebelum melakukan `INSERT` ke tabel `Penghuni`. Mengembalikan status operasi melalui parameter `OUT`. Diakhiri dengan `SELECT p_status_code, p_status_message;` untuk memudahkan pengambilan nilai `OUT` di Python.
-    ```sql
-    DELIMITER $$
-    CREATE PROCEDURE sp_TambahPenghuni (
-        IN p_nim VARCHAR(50),
-        IN p_nama_penghuni VARCHAR(255),
-        IN p_nama_fakultas_input VARCHAR(255), -- Menerima nama fakultas
-        IN p_nomor_kamar INT,
-        IN p_asrama_id INT,
-        OUT p_status_code INT, 
-        OUT p_status_message VARCHAR(255)
-    )
-    BEGIN
-        DECLARE v_kamar_id_internal INT;
-        DECLARE v_kapasitas_kamar INT;
-        DECLARE v_jumlah_penghuni_saat_ini INT;
-        DECLARE v_fakultas_id INT DEFAULT NULL;
-
-        SET p_status_code = 4; 
-        SET p_status_message = 'Terjadi kesalahan tidak diketahui.';
-
-        -- Dapatkan atau buat fakultas_id
-        IF p_nama_fakultas_input IS NOT NULL AND p_nama_fakultas_input != '' THEN
-            SELECT fakultas_id INTO v_fakultas_id FROM Fakultas WHERE nama_fakultas = p_nama_fakultas_input;
-            IF v_fakultas_id IS NULL THEN
-                INSERT INTO Fakultas (nama_fakultas) VALUES (p_nama_fakultas_input);
-                SET v_fakultas_id = LAST_INSERT_ID();
-            END IF;
-        END IF;
-
-        SELECT kamar_id_internal INTO v_kamar_id_internal
-        FROM Kamar
-        WHERE nomor_kamar = p_nomor_kamar AND asrama_id = p_asrama_id;
-
-        IF v_kamar_id_internal IS NULL THEN
-            SET p_status_code = 1;
-            SET p_status_message = 'Gagal: Kamar tidak ditemukan.';
-        ELSE
-            SELECT kapasitas INTO v_kapasitas_kamar FROM Kamar WHERE kamar_id_internal = v_kamar_id_internal;
-            SELECT COUNT(*) INTO v_jumlah_penghuni_saat_ini FROM Penghuni WHERE kamar_id_internal = v_kamar_id_internal;
-
-            IF v_jumlah_penghuni_saat_ini >= v_kapasitas_kamar THEN
-                SET p_status_code = 2;
-                SET p_status_message = 'Gagal: Kamar sudah penuh.';
-            ELSE
-                IF EXISTS (SELECT 1 FROM Penghuni WHERE nim = p_nim) THEN
-                    SET p_status_code = 3;
-                    SET p_status_message = CONCAT('Gagal: NIM ', p_nim, ' sudah terdaftar.');
-                ELSE
-                    INSERT INTO Penghuni (nim, nama_penghuni, fakultas_id, kamar_id_internal)
-                    VALUES (p_nim, p_nama_penghuni, v_fakultas_id, v_kamar_id_internal);
-                    SET p_status_code = 0;
-                    SET p_status_message = 'Sukses: Penghuni berhasil ditambahkan.';
-                END IF;
-            END IF;
-        END IF;
-        
-        SELECT p_status_code, p_status_message;
-    END$$
-
-    ```
-    * **Penggunaan di Python (`DatabaseService.add_penghuni`)**: Memanggil prosedur ini menggunakan `self.cursor.callproc()`. Hasil parameter `OUT` diambil dari `self.cursor.stored_results()` dan digunakan untuk memberikan feedback ke pengguna.
-
-* **`sp_PindahKamarPenghuni`**:
-    * **Definisi SQL**: Menerima parameter IN (nim, nomor kamar baru, id asrama baru) dan parameter OUT (status_code, status_message). Melakukan validasi (penghuni ada, kamar tujuan ada, kapasitas kamar tujuan) sebelum melakukan `UPDATE` pada `kamar_id_internal` di tabel `Penghuni`. Diakhiri dengan `SELECT p_status_code, p_status_message;`.
-    ```sql
-    CREATE PROCEDURE sp_PindahKamarPenghuni (
-        IN p_nim VARCHAR(50),
-        IN p_nomor_kamar_baru INT,
-        IN p_asrama_id_baru INT,
-        OUT p_status_code INT, 
-        OUT p_status_message VARCHAR(255)
-    )
-    BEGIN
-        DECLARE v_kamar_id_internal_lama INT;
-        DECLARE v_kamar_id_internal_baru INT;
-        DECLARE v_kapasitas_kamar_baru INT;
-        DECLARE v_jumlah_penghuni_kamar_baru INT;
-        DECLARE v_penghuni_exists INT DEFAULT 0;
-
-        SET p_status_code = 4;
-        SET p_status_message = 'Terjadi kesalahan tidak diketahui.';
-
-        SELECT COUNT(*), kamar_id_internal INTO v_penghuni_exists, v_kamar_id_internal_lama FROM Penghuni WHERE nim = p_nim;
-        
-        IF v_penghuni_exists = 0 THEN
-            SET p_status_code = 1;
-            SET p_status_message = 'Gagal: Penghuni dengan NIM tersebut tidak ditemukan.';
-        ELSE
-            SELECT kamar_id_internal INTO v_kamar_id_internal_baru
-            FROM Kamar
-            WHERE nomor_kamar = p_nomor_kamar_baru AND asrama_id = p_asrama_id_baru;
-
-            IF v_kamar_id_internal_baru IS NULL THEN
-                SET p_status_code = 2;
-                SET p_status_message = 'Gagal: Kamar tujuan tidak ditemukan.';
-            ELSE
-                IF v_kamar_id_internal_lama = v_kamar_id_internal_baru THEN
-                    SET p_status_code = 0; 
-                    SET p_status_message = 'Info: Penghuni sudah berada di kamar tujuan.';
-                ELSE
-                    SELECT kapasitas INTO v_kapasitas_kamar_baru FROM Kamar WHERE kamar_id_internal = v_kamar_id_internal_baru;
-                    SELECT COUNT(*) INTO v_jumlah_penghuni_kamar_baru FROM Penghuni WHERE kamar_id_internal = v_kamar_id_internal_baru;
-
-                    IF v_jumlah_penghuni_kamar_baru >= v_kapasitas_kamar_baru THEN
-                        SET p_status_code = 3;
-                        SET p_status_message = 'Gagal: Kamar tujuan sudah penuh.';
-                    ELSE
-                        UPDATE Penghuni SET kamar_id_internal = v_kamar_id_internal_baru WHERE nim = p_nim;
-                        SET p_status_code = 0;
-                        SET p_status_message = 'Sukses: Penghuni berhasil dipindahkan.';
-                    END IF;
-                END IF;
-            END IF;
-        END IF;
-
-        -- Pilih parameter OUT sebagai hasil akhir
-        SELECT p_status_code, p_status_message;
-    END$$
-
-    DELIMITER ;
-
-    ```
-    * **Penggunaan di Python (`DatabaseService.pindah_kamar_penghuni`)**: Mirip dengan `add_penghuni`, memanggil prosedur dan mengambil status operasinya.
-
-### 3. Trigger
-Trigger adalah blok kode SQL yang secara otomatis dieksekusi sebagai respons terhadap event tertentu (INSERT, UPDATE, DELETE) pada tabel.
-* **Tabel `AuditLogAktivitasPenghuni`**: Dibuat untuk menyimpan log semua perubahan data penghuni.
-```sql
-CREATE TABLE IF NOT EXISTS AuditLogAktivitasPenghuni (
-    log_id INT AUTO_INCREMENT PRIMARY KEY,
-    nim VARCHAR(50),
-    nama_penghuni_lama VARCHAR(255) DEFAULT NULL,
-    nama_penghuni_baru VARCHAR(255) DEFAULT NULL,
-    fakultas_lama VARCHAR(255) DEFAULT NULL,
-    fakultas_baru VARCHAR(255) DEFAULT NULL,
-    kamar_id_internal_lama INT DEFAULT NULL,
-    kamar_id_internal_baru INT DEFAULT NULL,
-    nomor_kamar_lama INT DEFAULT NULL,
-    nama_asrama_lama VARCHAR(255) DEFAULT NULL,
-    nomor_kamar_baru INT DEFAULT NULL,
-    nama_asrama_baru VARCHAR(255) DEFAULT NULL,
-    aksi VARCHAR(10) NOT NULL COMMENT 'INSERT, UPDATE, DELETE',
-    waktu_aksi TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    user_aksi VARCHAR(100) DEFAULT NULL COMMENT 'Jika ada mekanisme user login di aplikasi',
-    keterangan_tambahan TEXT DEFAULT NULL
-) ENGINE=InnoDB;
-```
-* **`trg_LogInsertPenghuni`**:
-    ```sql
-    DELIMITER $$
-    CREATE TRIGGER trg_LogInsertPenghuni
-    AFTER INSERT ON Penghuni
-    FOR EACH ROW
-    BEGIN
-        DECLARE v_nomor_kamar INT;
-        DECLARE v_nama_asrama VARCHAR(255);
-        DECLARE v_nama_fakultas VARCHAR(255) DEFAULT NULL;
-
-        SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar, v_nama_asrama
-        FROM Kamar K
+        SELECT
+            P.nim,
+            P.nama_penghuni,
+            F.nama_fakultas AS fakultas, 
+            K.nomor_kamar,
+            A.nama_asrama,
+            K.asrama_id AS id_asrama_penghuni,
+            A.asrama_id AS id_asrama_kamar,   
+            K.kamar_id_internal,
+            P.fakultas_id 
+        FROM Penghuni P
+        JOIN Kamar K ON P.kamar_id_internal = K.kamar_id_internal
         JOIN Asrama A ON K.asrama_id = A.asrama_id
-        WHERE K.kamar_id_internal = NEW.kamar_id_internal;
+        LEFT JOIN Fakultas F ON P.fakultas_id = F.fakultas_id;
+        ```
+        Penggunaan `LEFT JOIN Fakultas` memastikan bahwa penghuni yang mungkin belum memiliki data fakultas (jika `fakultas_id` adalah `NULL`) tetap akan ditampilkan dalam daftar, dengan kolom fakultasnya bernilai `NULL`.
+    * **Penggunaan di Python (`DatabaseService`)**:
+        * Metode `get_penghuni_in_kamar(nomor_kamar_val, asrama_id_val)`: Menggunakan view ini untuk mengambil semua informasi yang diperlukan tentang penghuni di kamar tertentu, termasuk nama fakultas mereka, dengan kueri yang jauh lebih sederhana daripada melakukan semua join secara manual di Python.
 
-        IF NEW.fakultas_id IS NOT NULL THEN
-            SELECT nama_fakultas INTO v_nama_fakultas FROM Fakultas WHERE fakultas_id = NEW.fakultas_id;
-        END IF;
+### 2. Stored Procedure (Prosedur Tersimpan)
 
-        INSERT INTO AuditLogAktivitasPenghuni (
-            nim, nama_penghuni_baru, fakultas_baru,
-            kamar_id_internal_baru, nomor_kamar_baru, nama_asrama_baru,
-            aksi, keterangan_tambahan
-        )
-        VALUES (
-            NEW.nim, NEW.nama_penghuni, v_nama_fakultas,
-            NEW.kamar_id_internal, v_nomor_kamar, v_nama_asrama,
-            'INSERT', CONCAT('Penghuni baru ditambahkan ke kamar ', v_nomor_kamar, ' Asrama ', v_nama_asrama)
-        );
-    END$$
+**Konsep Dasar:**
+Stored Procedure adalah sekumpulan satu atau lebih pernyataan SQL yang telah di-compile dan disimpan di server database. Mereka dapat dipanggil berdasarkan nama dan dapat menerima parameter input (IN) serta mengembalikan parameter output (OUT) atau result set.
 
-    ```
-    * **Event**: `AFTER INSERT ON Penghuni`
-    * **Aksi**: Mencatat data penghuni yang baru ditambahkan (NIM, nama, fakultas, detail kamar baru) ke dalam tabel `AuditLogAktivitasPenghuni` dengan aksi 'INSERT'.
+**Implementasi dalam Aplikasi:**
+
+* **`sp_TambahPenghuni`**
+    * **Tujuan**: Mengenkapsulasi seluruh logika bisnis dan validasi yang diperlukan saat menambahkan penghuni baru. Ini memastikan bahwa semua aturan diterapkan secara konsisten, terlepas dari bagaimana prosedur ini dipanggil.
+    * **Parameter**:
+        * `IN p_nim VARCHAR(50)`
+        * `IN p_nama_penghuni VARCHAR(255)`
+        * `IN p_nama_fakultas_input VARCHAR(255)` (Nama fakultas, bukan ID)
+        * `IN p_nomor_kamar INT`
+        * `IN p_asrama_id INT`
+        * `OUT p_status_code INT` (Kode status: 0 untuk sukses, >0 untuk berbagai jenis error)
+        * `OUT p_status_message VARCHAR(255)` (Pesan deskriptif mengenai hasil operasi)
+    * **Logika Internal Prosedur**:
+        1.  Validasi `p_nim`: Memastikan NIM tidak kosong dan hanya berisi angka menggunakan `REGEXP '^[0-9]+$'`. Jika tidak valid, set `p_status_code = 5`.
+        2.  Penanganan Fakultas: Jika `p_nama_fakultas_input` diberikan, prosedur mencari `fakultas_id` di tabel `Fakultas`. Jika nama fakultas belum ada, fakultas baru akan otomatis ditambahkan ke tabel `Fakultas`, dan `fakultas_id` yang baru dibuat akan digunakan.
+        3.  Pencarian Kamar: Mencari `kamar_id_internal` berdasarkan `p_nomor_kamar` dan `p_asrama_id`. Jika tidak ditemukan, set `p_status_code = 1`.
+        4.  Validasi Kapasitas: Jika kamar ditemukan, periksa kapasitasnya dibandingkan dengan jumlah penghuni saat ini. Jika penuh, set `p_status_code = 2`.
+        5.  Validasi Duplikasi NIM: Periksa apakah NIM yang akan ditambahkan sudah terdaftar. Jika ya, set `p_status_code = 3`.
+        6.  Operasi `INSERT`: Jika semua validasi lolos, lakukan `INSERT` data penghuni baru ke tabel `Penghuni` dengan `fakultas_id` yang sesuai. Set `p_status_code = 0` dan pesan sukses.
+    * **Penggunaan di Python (`DatabaseService.add_penghuni`)**:
+        * Kode Python memanggil prosedur ini menggunakan `self.cursor.callproc('sp_TambahPenghuni', proc_args_list)`.
+        * `proc_args_list` adalah list Python yang berisi parameter IN dan placeholder (misalnya, `0` dan `""`) untuk parameter OUT.
+        * Setelah `callproc`, nilai parameter `OUT` (`status_code` dan `status_message`) dibaca langsung dari `proc_args_list` yang telah dimodifikasi oleh konektor.
+        * Aplikasi menampilkan pesan berdasarkan `status_message` dan melakukan `self.conn.commit()` jika `status_code` adalah 0.
+
+* **`sp_PindahKamarPenghuni`**
+    * **Tujuan**: Mengenkapsulasi logika untuk memindahkan penghuni ke kamar lain, termasuk semua validasi yang diperlukan.
+    * **Parameter**:
+        * `IN p_nim VARCHAR(50)`
+        * `IN p_nomor_kamar_baru INT`
+        * `IN p_asrama_id_baru INT`
+        * `OUT p_status_code INT`
+        * `OUT p_status_message VARCHAR(255)`
+    * **Logika Internal Prosedur**:
+        1.  Validasi `p_nim`: Memastikan NIM tidak kosong dan hanya berisi angka. Jika tidak valid, set `p_status_code = 5`.
+        2.  Pengecekan Penghuni: Verifikasi apakah penghuni dengan `p_nim` ada. Jika tidak, set `p_status_code = 1`.
+        3.  Pengecekan Kamar Tujuan: Verifikasi apakah kamar tujuan (`p_nomor_kamar_baru` di `p_asrama_id_baru`) ada. Jika tidak, set `p_status_code = 2`.
+        4.  Pengecekan Pindah ke Kamar Sendiri: Jika kamar tujuan sama dengan kamar saat ini, operasi dianggap info (sukses tanpa perubahan), set `p_status_code = 0`.
+        5.  Validasi Kapasitas Kamar Tujuan: Jika kamar tujuan berbeda, periksa kapasitasnya. Jika penuh, set `p_status_code = 3`.
+        6.  Operasi `UPDATE`: Jika semua validasi lolos, lakukan `UPDATE` pada kolom `kamar_id_internal` di tabel `Penghuni`. Set `p_status_code = 0` dan pesan sukses.
+    * **Penggunaan di Python (`DatabaseService.pindah_kamar_penghuni`)**:
+        * Mirip dengan `add_penghuni`, memanggil prosedur menggunakan `callproc` dan mengambil parameter `OUT` dari list argumen yang dimodifikasi. Melakukan `commit` jika berhasil.
+
+**Manfaat Penggunaan Stored Procedure:**
+* **Enkapsulasi Logika Bisnis**: Semua aturan validasi dan urutan operasi data yang kompleks terkait penambahan atau pemindahan penghuni kini terpusat di database. Ini mengurangi risiko inkonsistensi jika ada beberapa cara untuk memodifikasi data.
+* **Kinerja**: Stored Procedure di-compile sekali oleh server database dan dapat dieksekusi lebih cepat daripada mengirim banyak pernyataan SQL individual dari aplikasi.
+* **Keamanan**: Dengan memberikan izin `EXECUTE` pada prosedur ini kepada pengguna database aplikasi, Anda dapat mencabut izin `INSERT` atau `UPDATE` langsung ke tabel `Penghuni` atau `Fakultas`, sehingga semua modifikasi harus melalui logika yang terkontrol di dalam prosedur.
+* **Mengurangi Lalu Lintas Jaringan**: Aplikasi hanya mengirim nama prosedur dan parameter input, bukan blok kode SQL yang panjang.
+
+### 3. Trigger (Pemicu)
+
+**Konsep Dasar:**
+Trigger adalah blok kode SQL yang secara otomatis dieksekusi oleh server database sebagai respons terhadap event DML (Data Manipulation Language) tertentu (`INSERT`, `UPDATE`, `DELETE`) yang terjadi pada tabel tertentu.
+
+**Implementasi dalam Aplikasi:**
+
+* **Tabel `AuditLogAktivitasPenghuni`**:
+    * Sebuah tabel khusus (`AuditLogAktivitasPenghuni`) dibuat untuk menyimpan catatan (log) dari semua aktivitas penting yang terjadi pada data penghuni. Kolom-kolomnya mencakup NIM, nilai lama dan baru dari data yang diubah (nama, fakultas, kamar), jenis aksi (`INSERT`, `UPDATE`, `DELETE`), waktu aksi, dan keterangan tambahan.
+
+* **`trg_LogInsertPenghuni`**:
+    * **Event**: `AFTER INSERT ON Penghuni` (berjalan setelah baris baru berhasil dimasukkan ke tabel `Penghuni`).
+    * **Aksi**: Secara otomatis mengambil data penghuni yang baru dimasukkan (`NEW.nim`, `NEW.nama_penghuni`), mencari nama fakultas berdasarkan `NEW.fakultas_id`, serta detail kamar baru. Informasi ini kemudian disisipkan sebagai entri baru ke dalam tabel `AuditLogAktivitasPenghuni` dengan `aksi = 'INSERT'` dan keterangan yang relevan.
+
 * **`trg_LogUpdatePenghuni`**:
-    ```sql
-        
-    CREATE TRIGGER trg_LogUpdatePenghuni
-    AFTER UPDATE ON Penghuni
-    FOR EACH ROW
-    BEGIN
-        DECLARE v_nomor_kamar_lama INT DEFAULT NULL;
-        DECLARE v_nama_asrama_lama VARCHAR(255) DEFAULT NULL;
-        DECLARE v_nama_fakultas_lama VARCHAR(255) DEFAULT NULL;
-        DECLARE v_nomor_kamar_baru INT DEFAULT NULL;
-        DECLARE v_nama_asrama_baru VARCHAR(255) DEFAULT NULL;
-        DECLARE v_nama_fakultas_baru VARCHAR(255) DEFAULT NULL;
-        DECLARE v_keterangan TEXT DEFAULT 'Data penghuni diubah.';
+    * **Event**: `AFTER UPDATE ON Penghuni` (berjalan setelah data pada baris yang ada di tabel `Penghuni` berhasil diubah).
+    * **Aksi**: Mencatat nilai lama (`OLD.*`) dan nilai baru (`NEW.*`) untuk kolom-kolom seperti nama penghuni, nama fakultas (diambil melalui join), dan detail kamar (lama dan baru jika ada perpindahan). Informasi ini dicatat ke `AuditLogAktivitasPenghuni` dengan `aksi = 'UPDATE'`. Trigger ini juga memberikan keterangan yang lebih spesifik jika terjadi perpindahan kamar atau hanya perubahan data lainnya.
 
-        IF OLD.kamar_id_internal IS NOT NULL THEN
-            SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar_lama, v_nama_asrama_lama
-            FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id
-            WHERE K.kamar_id_internal = OLD.kamar_id_internal;
-        END IF;
-        IF OLD.fakultas_id IS NOT NULL THEN
-            SELECT nama_fakultas INTO v_nama_fakultas_lama FROM Fakultas WHERE fakultas_id = OLD.fakultas_id;
-        END IF;
-
-        IF NEW.kamar_id_internal IS NOT NULL THEN
-            SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar_baru, v_nama_asrama_baru
-            FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id
-            WHERE K.kamar_id_internal = NEW.kamar_id_internal;
-        END IF;
-        IF NEW.fakultas_id IS NOT NULL THEN
-            SELECT nama_fakultas INTO v_nama_fakultas_baru FROM Fakultas WHERE fakultas_id = NEW.fakultas_id;
-        END IF;
-
-        IF OLD.kamar_id_internal != NEW.kamar_id_internal THEN
-            SET v_keterangan = CONCAT('Penghuni pindah dari kamar ', IFNULL(v_nomor_kamar_lama, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama_lama, 'N/A'), 
-                                    ' ke kamar ', IFNULL(v_nomor_kamar_baru, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama_baru, 'N/A'), '.');
-        ELSEIF OLD.fakultas_id != NEW.fakultas_id OR (OLD.fakultas_id IS NULL AND NEW.fakultas_id IS NOT NULL) OR (OLD.fakultas_id IS NOT NULL AND NEW.fakultas_id IS NULL) THEN
-            SET v_keterangan = CONCAT('Fakultas diubah dari ', IFNULL(v_nama_fakultas_lama, 'N/A'), ' menjadi ', IFNULL(v_nama_fakultas_baru, 'N/A'), '.');
-        ELSEIF OLD.nama_penghuni != NEW.nama_penghuni THEN
-            SET v_keterangan = CONCAT('Nama diubah dari ', OLD.nama_penghuni, ' menjadi ', NEW.nama_penghuni, '.');
-        END IF;
-
-
-        INSERT INTO AuditLogAktivitasPenghuni (
-            nim,
-            nama_penghuni_lama, nama_penghuni_baru,
-            fakultas_lama, fakultas_baru,
-            kamar_id_internal_lama, kamar_id_internal_baru,
-            nomor_kamar_lama, nama_asrama_lama,
-            nomor_kamar_baru, nama_asrama_baru,
-            aksi, keterangan_tambahan
-        )
-        VALUES (
-            OLD.nim, 
-            OLD.nama_penghuni, NEW.nama_penghuni,
-            v_nama_fakultas_lama, v_nama_fakultas_baru,
-            OLD.kamar_id_internal, NEW.kamar_id_internal,
-            v_nomor_kamar_lama, v_nama_asrama_lama,
-            v_nomor_kamar_baru, v_nama_asrama_baru,
-            'UPDATE', v_keterangan
-        );
-    END$$
-
-    ```
-    * **Event**: `AFTER UPDATE ON Penghuni`
-    * **Aksi**: Mencatat nilai lama dan baru untuk nama, fakultas, dan detail kamar penghuni yang diubah ke dalam `AuditLogAktivitasPenghuni` dengan aksi 'UPDATE'. Juga memberikan keterangan jika terjadi perpindahan kamar.
 * **`trg_LogDeletePenghuni`**:
-    ```sql
-        
-    CREATE TRIGGER trg_LogDeletePenghuni
-    AFTER DELETE ON Penghuni
-    FOR EACH ROW
-    BEGIN
-        DECLARE v_nomor_kamar INT DEFAULT NULL;
-        DECLARE v_nama_asrama VARCHAR(255) DEFAULT NULL;
-        DECLARE v_nama_fakultas VARCHAR(255) DEFAULT NULL;
+    * **Event**: `AFTER DELETE ON Penghuni` (berjalan setelah baris berhasil dihapus dari tabel `Penghuni`).
+    * **Aksi**: Mencatat informasi penghuni yang dihapus (NIM, nama lama, nama fakultas lama, detail kamar lama) ke dalam `AuditLogAktivitasPenghuni` dengan `aksi = 'DELETE'`.
 
-        IF OLD.kamar_id_internal IS NOT NULL THEN
-            SELECT K.nomor_kamar, A.nama_asrama INTO v_nomor_kamar, v_nama_asrama
-            FROM Kamar K JOIN Asrama A ON K.asrama_id = A.asrama_id
-            WHERE K.kamar_id_internal = OLD.kamar_id_internal;
-        END IF;
-        IF OLD.fakultas_id IS NOT NULL THEN
-            SELECT nama_fakultas INTO v_nama_fakultas FROM Fakultas WHERE fakultas_id = OLD.fakultas_id;
-        END IF;
+**Manfaat Penggunaan Trigger:**
+* **Auditing Otomatis dan Komprehensif**: Setiap perubahan data penting pada tabel `Penghuni` (baik melalui Stored Procedure maupun operasi DML langsung jika diizinkan) akan secara otomatis dicatat. Ini memastikan bahwa semua modifikasi data terlacak tanpa memerlukan kode logging tambahan di sisi aplikasi Python.
+* **Integritas dan Transparansi**: Menyediakan jejak audit yang jelas yang dapat digunakan untuk analisis, pelacakan masalah, atau kebutuhan kepatuhan di kemudian hari.
+* **Pemisahan Tanggung Jawab**: Logika auditing sepenuhnya ditangani oleh database, memisahkan kekhawatiran ini dari logika aplikasi utama.
+* **Konsistensi Log**: Karena logging dilakukan di level database, format dan kelengkapan log akan selalu konsisten.
 
-        INSERT INTO AuditLogAktivitasPenghuni (
-            nim, nama_penghuni_lama, fakultas_lama,
-            kamar_id_internal_lama, nomor_kamar_lama, nama_asrama_lama,
-            aksi, keterangan_tambahan
-        )
-        VALUES (
-            OLD.nim, OLD.nama_penghuni, v_nama_fakultas,
-            OLD.kamar_id_internal, v_nomor_kamar, v_nama_asrama,
-            'DELETE', CONCAT('Penghuni dihapus dari kamar ', IFNULL(v_nomor_kamar, 'N/A'), ' Asrama ', IFNULL(v_nama_asrama, 'N/A'))
-        );
-    END$$
+**Interaksi Keseluruhan:**
+Kode Python di `DatabaseService` berinteraksi dengan View untuk menyederhanakan pengambilan data. Untuk operasi modifikasi data yang krusial seperti menambah atau memindahkan penghuni, `DatabaseService` memanggil Stored Procedure yang sesuai. Stored Procedure ini kemudian melakukan validasi dan operasi DML. Setiap operasi DML (`INSERT`, `UPDATE`, `DELETE`) pada tabel `Penghuni` secara otomatis memicu Trigger yang relevan, yang kemudian mencatat aktivitas tersebut ke tabel `AuditLogAktivitasPenghuni`. Akhirnya, layar `RiwayatAktivitasScreen` di aplikasi Python membaca data dari tabel log ini untuk menampilkannya kepada pengguna.
 
-    DELIMITER ;
+Kombinasi dari struktur OOP yang baik di Python dengan pemanfaatan fitur database tingkat lanjut ini menghasilkan sebuah aplikasi yang tidak hanya fungsional tetapi juga lebih kuat, aman, dan mudah dipelihara.
 
-    ```
-    * **Event**: `AFTER DELETE ON Penghuni`
-    * **Aksi**: Mencatat data penghuni yang dihapus (NIM, nama lama, fakultas lama, detail kamar lama) ke dalam `AuditLogAktivitasPenghuni` dengan aksi 'DELETE'.
-* **Penggunaan di Python**: Trigger bekerja secara otomatis di sisi database. Kode Python hanya perlu melakukan operasi DML (INSERT, UPDATE, DELETE) pada tabel `Penghuni` (baik secara langsung maupun melalui Stored Procedure), dan trigger akan terpanggil untuk mencatat log. Layar `RiwayatAktivitasScreen` kemudian menampilkan data dari tabel `AuditLogAktivitasPenghuni`.
 
 ## Cara Menjalankan Aplikasi
 

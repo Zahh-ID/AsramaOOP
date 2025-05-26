@@ -60,9 +60,6 @@ def tbl(canvas, x, y, lebar, tinggi, radius_awal, radius_akhir,
 
     button_tag = f"button_custom_{path_id}" 
     canvas.addtag_withtag(button_tag, path_id)
-    # Tambahkan tag ke busur juga jika perlu agar seluruh area bisa diklik,
-    # namun untuk kesederhanaan, kita bind ke path_id dan teks_id saja.
-    # Jika pieslice menutupi poligon, event binding mungkin perlu disesuaikan.
 
     def klik_tombol(event):
         perintah()

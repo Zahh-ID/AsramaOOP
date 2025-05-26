@@ -7,9 +7,9 @@ class DatabaseService:
     Menggunakan View dan Stored Procedure.
     """
     def __init__(self, host, user, password, database_name):
-        self.host = host
-        self.user = user
-        self.password = password
+        self._host = host
+        self._user = user
+        self._password = password
         self.database_name = database_name
         self.conn = None
         self.cursor = None
@@ -24,9 +24,9 @@ class DatabaseService:
         """Membuat koneksi ke database MySQL."""
         try:
             self.conn = mysql.connector.connect(
-                host=self.host,
-                user=self.user,
-                password=self.password,
+                host=self._host,
+                user=self._user,
+                password=self._password,
                 database=self.database_name
             )
             self.cursor = self.conn.cursor(dictionary=True) # dictionary=True penting untuk akses hasil SP
@@ -207,22 +207,17 @@ class DatabaseService:
             messagebox.showerror("Kesalahan Database", "Tidak ada koneksi ke database MySQL.")
             return False
         try:
-            # SP sp_TambahPenghuni expects 7 parameters: 5 IN, 2 OUT.
-            # Pass a list/tuple of 7 elements to callproc.
-            # The last 2 are placeholders for OUT params, their initial values don't matter here
-            # as we will fetch the OUT params from the stored_results.
             args_for_callproc = [nim, nama, fakultas, nomor_kamar_val, asrama_id_val, None, None] 
             
             self.cursor.callproc('sp_TambahPenghuni', args_for_callproc) 
             
             out_params_dict = None
-            # Mengambil hasil SELECT dari SP yang berisi parameter OUT
             for result in self.cursor.stored_results():
                 out_params_dict = result.fetchone() 
                 break 
 
             if out_params_dict:
-                status_code = out_params_dict.get('p_status_code') # Gunakan .get() untuk keamanan
+                status_code = out_params_dict.get('p_status_code') 
                 status_message = out_params_dict.get('p_status_message')
 
                 if status_code == 0: 
