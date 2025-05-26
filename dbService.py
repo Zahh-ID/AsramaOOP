@@ -193,12 +193,21 @@ class DatabaseService:
             messagebox.showerror("Kesalahan Database", "Tidak ada koneksi ke database MySQL.")
             return False
         try:
-            proc_args_list = [nim, nama, nama_fakultas, nomor_kamar_val, asrama_id_val, 0, ""] 
-            self.cursor.callproc('sp_TambahPenghuni', proc_args_list)
-            status_code = proc_args_list[5] 
-            status_message = proc_args_list[6]
+            # Argumen IN untuk SP
+            args_in = (nim, nama, nama_fakultas, nomor_kamar_val, asrama_id_val)
+            
+            self.cursor.callproc('sp_TambahPenghuni', args_in) 
+            
+            out_params_dict = None
+            # Mengambil hasil SELECT dari SP yang berisi parameter OUT
+            for result in self.cursor.stored_results(): # Iterasi untuk mendapatkan result set
+                out_params_dict = result.fetchone()    # Ambil baris pertama dari result set
+                break                                  # Asumsi hanya satu result set dari SP ini
 
-            if status_code is not None: 
+            if out_params_dict:
+                status_code = out_params_dict.get('p_status_code') 
+                status_message = out_params_dict.get('p_status_message', "Status tidak diketahui dari SP.") # Default message
+
                 if status_code == 0: 
                     messagebox.showinfo("Sukses", status_message)
                     self.conn.commit() 
@@ -207,7 +216,7 @@ class DatabaseService:
                     messagebox.showerror("Gagal Menambah Penghuni", status_message)
                     return False
             else:
-                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Tambah Penghuni (OUT params tidak terisi dengan benar).")
+                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Tambah Penghuni (hasil SELECT tidak ditemukan).")
                 return False
         except mysql.connector.Error as err:
             messagebox.showerror("Kesalahan Database SP", f"Gagal memanggil sp_TambahPenghuni: {err}")
@@ -222,12 +231,18 @@ class DatabaseService:
             messagebox.showerror("Kesalahan Database", "Tidak ada koneksi ke database MySQL.")
             return False, "Tidak ada koneksi database."
         try:
-            proc_args_list = [nim, nomor_kamar_baru, asrama_id_baru, 0, ""] 
-            self.cursor.callproc('sp_PindahKamarPenghuni', proc_args_list)
-            status_code = proc_args_list[3]
-            status_message = proc_args_list[4]
+            args_in = (nim, nomor_kamar_baru, asrama_id_baru)
+            self.cursor.callproc('sp_PindahKamarPenghuni', args_in)
 
-            if status_code is not None: 
+            out_params_dict = None
+            for result in self.cursor.stored_results():
+                out_params_dict = result.fetchone()
+                break
+            
+            if out_params_dict:
+                status_code = out_params_dict.get('p_status_code')
+                status_message = out_params_dict.get('p_status_message', "Status tidak diketahui dari SP.")
+
                 if status_code == 0: 
                     if status_message and "Info:" in status_message: 
                         messagebox.showinfo("Info Pindah Kamar", status_message)
@@ -239,7 +254,7 @@ class DatabaseService:
                     messagebox.showerror("Gagal Pindah Kamar", status_message)
                     return False, status_message
             else:
-                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Pindah Kamar (OUT params tidak terisi dengan benar).")
+                messagebox.showerror("Kesalahan SP", "Tidak dapat mengambil status dari Stored Procedure Pindah Kamar (hasil SELECT tidak ditemukan).")
                 return False, "Gagal mengambil status SP."
         except mysql.connector.Error as err:
             messagebox.showerror("Kesalahan Database SP", f"Gagal memanggil sp_PindahKamarPenghuni: {err}")
@@ -312,7 +327,7 @@ class DatabaseService:
         params_for_update.append(nim_original)
         query = f"UPDATE Penghuni SET {', '.join(updates)} WHERE nim = %s"
 
-        success = self._execute_query(query, tuple(params_for_update), is_ddl_or_commit_managed_elsewhere=False) # Ejaan yang benar
+        success = self._execute_query(query, tuple(params_for_update), is_ddl_or_commit_managed_elsewhere=False) 
         
         if success:
             if self.cursor.rowcount > 0:
@@ -326,7 +341,7 @@ class DatabaseService:
 
 
     def delete_penghuni(self, nim):
-        success = self._execute_query("DELETE FROM Penghuni WHERE nim = %s", (nim,), is_ddl_or_commit_managed_elsewhere=False) # Ejaan yang benar
+        success = self._execute_query("DELETE FROM Penghuni WHERE nim = %s", (nim,), is_ddl_or_commit_managed_elsewhere=False) 
         if success and self.cursor.rowcount > 0:
             messagebox.showinfo("Sukses", f"Data penghuni dengan NIM {nim} berhasil dihapus.")
             return True
@@ -354,7 +369,7 @@ class DatabaseService:
             ORDER BY waktu_aksi DESC 
             LIMIT %s
         """ 
-        return self._execute_query(query, (limit,), fetch_all=True) or [] # Ejaan yang benar
+        return self._execute_query(query, (limit,), fetch_all=True) or [] 
 
     def __del__(self):
         self._close()
