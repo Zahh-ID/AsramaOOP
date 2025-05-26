@@ -12,50 +12,50 @@ class DatabaseService:
         self._user = user  # Diubah menjadi private
         self._password = password # Diubah menjadi private
         self._database_name = database_name # Diubah menjadi private
-        self._conn = None # Diubah menjadi private
+        self.conn = None # Diubah menjadi private
         self._cursor = None # Diubah menjadi private
         self._connect()
-        if self._conn: # Menggunakan atribut private
+        if self.conn: # Menggunakan atribut private
             self._create_main_tables_if_not_exist() 
             self._ensure_log_table_exists() 
 
     def _connect(self):
         """Membuat koneksi ke database MySQL."""
         try:
-            self._conn = mysql.connector.connect(
+            self.conn = mysql.connector.connect(
                 host=self._host, # Menggunakan atribut private
                 user=self._user, # Menggunakan atribut private
                 password=self._password # Menggunakan atribut private
                 # Database akan dipilih setelah dibuat jika belum ada
             )
-            self._cursor = self._conn.cursor(dictionary=True) # Menggunakan atribut private
+            self._cursor = self.conn.cursor(dictionary=True) # Menggunakan atribut private
             self._cursor.execute(f"CREATE DATABASE IF NOT EXISTS {self._database_name}") # Menggunakan atribut private
             self._cursor.execute(f"USE {self._database_name}") # Menggunakan atribut private
             print(f"Berhasil terhubung ke database MySQL dan menggunakan database '{self._database_name}'.")
         except mysql.connector.Error as err:
             print(f"Kesalahan koneksi database MySQL: {err}")
             messagebox.showerror("Kesalahan Database", f"Tidak dapat terhubung ke MySQL: {err}\n\nPastikan server MySQL berjalan dan detail koneksi benar.")
-            self._conn = None
+            self.conn = None
             self._cursor = None
 
     def _close(self):
         """Menutup koneksi database."""
         if self._cursor: # Menggunakan atribut private
             self._cursor.close()
-        if self._conn and self._conn.is_connected(): # Menggunakan atribut private
-            self._conn.close()
+        if self.conn and self.conn.is_connected(): # Menggunakan atribut private
+            self.conn.close()
             print("Koneksi MySQL ditutup.")
 
     def _execute_query(self, query, params=None, fetch_one=False, fetch_all=False, is_ddl_or_commit_managed_elsewhere=False): 
         """Helper untuk eksekusi kueri dengan error handling."""
-        if not self._conn or not self._conn.is_connected(): # Menggunakan atribut private
+        if not self.conn or not self.conn.is_connected(): # Menggunakan atribut private
             print("Kesalahan Database: Tidak ada koneksi ke database MySQL.")
             return None if fetch_one or fetch_all else False
         try:
             self._cursor.execute(query, params) # Menggunakan atribut private
             if not is_ddl_or_commit_managed_elsewhere and \
                query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")):
-                self._conn.commit() # Menggunakan atribut private
+                self.conn.commit() # Menggunakan atribut private
             if fetch_one:
                 return self._cursor.fetchone() # Menggunakan atribut private
             if fetch_all:
@@ -66,15 +66,15 @@ class DatabaseService:
             messagebox.showerror("Kesalahan Kueri Database", f"Terjadi kesalahan saat menjalankan kueri: {err}")
             if not is_ddl_or_commit_managed_elsewhere: 
                  try:
-                    if self._conn.in_transaction:  # Menggunakan atribut private
-                        self._conn.rollback() # Menggunakan atribut private
+                    if self.conn.in_transaction:  # Menggunakan atribut private
+                        self.conn.rollback() # Menggunakan atribut private
                  except mysql.connector.Error as rb_err:
                     print(f"Kesalahan saat rollback: {rb_err}")
             return None if fetch_one or fetch_all else False
 
     def _create_main_tables_if_not_exist(self):
         """Membuat tabel utama jika belum ada. View, SP, Trigger harus dibuat di server."""
-        if not self._conn or not self._conn.is_connected(): return # Menggunakan atribut private
+        if not self.conn or not self.conn.is_connected(): return # Menggunakan atribut private
         tables_ddl = [
             """CREATE TABLE IF NOT EXISTS Asrama (
                 asrama_id INTEGER PRIMARY KEY,
@@ -102,7 +102,7 @@ class DatabaseService:
         try:
             for ddl in tables_ddl:
                 self._execute_query(ddl, is_ddl_or_commit_managed_elsewhere=True) 
-            self._conn.commit()  # Menggunakan atribut private
+            self.conn.commit()  # Menggunakan atribut private
             print("Tabel utama Asrama, Fakultas, Kamar, Penghuni telah diperiksa/dibuat.")
         except mysql.connector.Error as e:
             print(f"Kesalahan pembuatan tabel utama MySQL: {e}")
@@ -122,7 +122,7 @@ class DatabaseService:
         ) ENGINE=InnoDB;
         """
         if self._execute_query(ddl_log_table, is_ddl_or_commit_managed_elsewhere=True): 
-            self._conn.commit()  # Menggunakan atribut private
+            self.conn.commit()  # Menggunakan atribut private
             print("Tabel AuditLogAktivitasPenghuni telah diperiksa/dibuat.")
 
 
@@ -189,7 +189,7 @@ class DatabaseService:
 
     def add_penghuni(self, nim, nama, nama_fakultas, nomor_kamar_val, asrama_id_val):
         """Menambahkan penghuni baru menggunakan Stored Procedure sp_TambahPenghuni."""
-        if not self._conn or not self._conn.is_connected(): # Menggunakan atribut private
+        if not self.conn or not self.conn.is_connected(): # Menggunakan atribut private
             messagebox.showerror("Kesalahan Database", "Tidak ada koneksi ke database MySQL.")
             return False
         try:
@@ -203,7 +203,7 @@ class DatabaseService:
             if status_code is not None: 
                 if status_code == 0: 
                     messagebox.showinfo("Sukses", status_message)
-                    self._conn.commit()  # Menggunakan atribut private
+                    self.conn.commit()  # Menggunakan atribut private
                     return True
                 else:
                     messagebox.showerror("Gagal Menambah Penghuni", status_message)
@@ -214,13 +214,13 @@ class DatabaseService:
         except mysql.connector.Error as err:
             messagebox.showerror("Kesalahan Database SP", f"Gagal memanggil sp_TambahPenghuni: {err}")
             try:
-                if self._conn.in_transaction: self._conn.rollback() # Menggunakan atribut private
+                if self.conn.in_transaction: self.conn.rollback() # Menggunakan atribut private
             except: pass
             return False
 
     def pindah_kamar_penghuni(self, nim, nomor_kamar_baru, asrama_id_baru):
         """Memindahkan penghuni ke kamar lain menggunakan Stored Procedure sp_PindahKamarPenghuni."""
-        if not self._conn or not self._conn.is_connected(): # Menggunakan atribut private
+        if not self.conn or not self.conn.is_connected(): # Menggunakan atribut private
             messagebox.showerror("Kesalahan Database", "Tidak ada koneksi ke database MySQL.")
             return False, "Tidak ada koneksi database."
         try:
@@ -236,7 +236,7 @@ class DatabaseService:
                         messagebox.showinfo("Info Pindah Kamar", status_message)
                     else:
                         messagebox.showinfo("Sukses Pindah Kamar", status_message if status_message else "Operasi berhasil.")
-                    self._conn.commit() # Menggunakan atribut private
+                    self.conn.commit() # Menggunakan atribut private
                     return True, status_message
                 else:
                     messagebox.showerror("Gagal Pindah Kamar", status_message)
@@ -247,14 +247,14 @@ class DatabaseService:
         except mysql.connector.Error as err:
             messagebox.showerror("Kesalahan Database SP", f"Gagal memanggil sp_PindahKamarPenghuni: {err}")
             try:
-                if self._conn.in_transaction: self._conn.rollback() # Menggunakan atribut private
+                if self.conn.in_transaction: self.conn.rollback() # Menggunakan atribut private
             except: pass
             return False, str(err)
 
 
     def update_penghuni(self, nim_original, nim_baru, nama_baru, nama_fakultas_baru):
         """Memperbarui data penghuni (Trigger akan mencatat log)."""
-        if not self._conn or not self._conn.is_connected(): # Menggunakan atribut private
+        if not self.conn or not self.conn.is_connected(): # Menggunakan atribut private
             messagebox.showerror("Kesalahan Database", "Tidak ada koneksi ke database MySQL.")
             return "ERROR_CONNECTION" 
 
@@ -296,7 +296,7 @@ class DatabaseService:
                         self._cursor.execute("INSERT INTO Fakultas (nama_fakultas) VALUES (%s)", (nama_fakultas_baru,)) # Menggunakan atribut private
                         fakultas_id_to_update = self._cursor.lastrowid  # Menggunakan atribut private
                         if fakultas_id_to_update: 
-                            self._conn.commit()  # Menggunakan atribut private
+                            self.conn.commit()  # Menggunakan atribut private
                             print(f"Fakultas baru '{nama_fakultas_baru}' ditambahkan dengan ID: {fakultas_id_to_update}")
                         else: 
                             messagebox.showerror("Kesalahan", f"Gagal menambahkan fakultas baru '{nama_fakultas_baru}'.")
